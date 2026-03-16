@@ -7,6 +7,7 @@ import {
   normalizeChargerType,
 } from '../lib/chargerCatalog'
 import { normalizeParkingParams } from '../lib/parkingSlots'
+import { normalizeStorageModel, storageModelOptions } from '../lib/storageCatalog'
 import { useEditorStore } from '../store/editorStore'
 import type {
   ChargerParams,
@@ -107,7 +108,9 @@ export function PropertiesPanel({ element }: PropertiesPanelProps) {
                   ? '车位参数'
                   : element.type === 'charger'
                     ? '充电桩参数'
-                    : getCatalogItem(element.type).title}
+                    : element.type === 'storage'
+                      ? '储能柜参数'
+                      : getCatalogItem(element.type).title}
               </span>
             </div>
             <div className="properties-section-body">
@@ -281,14 +284,16 @@ function StorageFields({
   params: StorageParams
   onChange: (params: Partial<StorageParams>) => void
 }) {
+  const normalizedModel = normalizeStorageModel(params.model)
+
   return (
     <SelectField
       label="储能柜型号"
-      value={params.model}
-      options={[
-        { label: '215kWh 标准柜', value: 'storage_215kwh' },
-        { label: '372kWh 高配柜', value: 'storage_372kwh' },
-      ]}
+      value={normalizedModel}
+      options={storageModelOptions.map((option) => ({
+        label: option.label,
+        value: option.value,
+      }))}
       onChange={(value) => onChange({ model: value as StorageParams['model'] })}
     />
   )

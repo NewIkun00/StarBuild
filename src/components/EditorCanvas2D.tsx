@@ -1,12 +1,18 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import Konva from 'konva'
 import chargerCanvasImageSrc from '../../assets/CDZSVG.svg'
+import chargerPreviewImageSrc from '../../assets/CDZ555.png'
+import storagePreviewImageSrc from '../../assets/SBchunenggui.png'
+import storage261ImageSrc from '../../assets/CNG26111.svg'
+import storage418ImageSrc from '../../assets/CNG418888.svg'
+import parkingPreviewImageSrc from '../../assets/TYxiaochechewei.png'
 import { FastLayer, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import { getCatalogItem, getTileCatalogItem } from '../lib/catalog'
 import { normalizeParkingParams } from '../lib/parkingSlots'
+import { normalizeStorageModel } from '../lib/storageCatalog'
 import { getElementMeterSize, getElementSceneSize } from '../lib/sceneGeometry'
 import { getUnitsPerMeter } from '../lib/units'
-import type { ElementType, ParkingParams } from '../types/scene'
+import type { ElementType, ParkingParams, StorageParams } from '../types/scene'
 import { useEditorStore } from '../store/editorStore'
 
 const MIN_SCALE = 0.3
@@ -162,6 +168,9 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const selectedLabelGroupRef = useRef<Konva.Group | null>(null)
   const selectedLabelRectRef = useRef<Konva.Rect | null>(null)
   const selectedLabelTextRef = useRef<Konva.Text | null>(null)
+  const multiSelectedOutlineLayerRef = useRef<Konva.Layer | null>(null)
+  const multiSelectedOutlineGroupRef = useRef<Konva.Group | null>(null)
+  const multiSelectedOutlineRectRef = useRef<Konva.Rect | null>(null)
   const elementNodeMapRef = useRef<Record<string, Konva.Node | null>>({})
   const elementHitNodeMapRef = useRef<Record<string, Konva.Rect | null>>({})
   const panStartRef = useRef<{ x: number; y: number } | null>(null)
@@ -169,6 +178,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const initializedSceneRef = useRef<string | null>(null)
   const selectedIdRef = useRef<string | null>(useEditorStore.getState().selectedId)
   const selectedIdsRef = useRef<string[]>(useEditorStore.getState().selectedIds)
+  const selectionPreviewIdsRef = useRef<string[]>([])
   const hoveredIdRef = useRef<string | null>(null)
   const viewportRef = useRef<Viewport>({ x: 0, y: 0, scale: 1 })
   const pendingViewportRef = useRef<Viewport | null>(null)
@@ -204,6 +214,11 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     useEditorStore.getState().selectedIds,
   )
   const chargerCanvasImage = useImageAsset(chargerCanvasImageSrc)
+  const chargerPreviewImage = useImageAsset(chargerPreviewImageSrc)
+  const parkingPreviewImage = useImageAsset(parkingPreviewImageSrc)
+  const storagePreviewImage = useImageAsset(storagePreviewImageSrc)
+  const storage261Image = useImageAsset(storage261ImageSrc)
+  const storage418Image = useImageAsset(storage418ImageSrc)
 
   if (!scene) {
     return null
@@ -232,10 +247,32 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
             }
           }, null)
       : null
+  const selectionPreviewIds = useMemo(() => {
+    if (!selectionDraft) {
+      return []
+    }
+
+    const normalizedSelection = {
+      minX: Math.min(selectionDraft.startX, selectionDraft.endX),
+      minY: Math.min(selectionDraft.startY, selectionDraft.endY),
+      maxX: Math.max(selectionDraft.startX, selectionDraft.endX),
+      maxY: Math.max(selectionDraft.startY, selectionDraft.endY),
+    }
+
+    return currentScene.elements
+      .filter((element) =>
+        doBoundsIntersect(
+          normalizedSelection,
+          getElementBounds(element, getElementSceneSize(element)),
+        ),
+      )
+      .map((element) => element.id)
+  }, [currentScene.elements, selectionDraft])
 
   function drawLayers() {
     tilesDisplayLayerRef.current?.batchDraw()
     elementsDisplayLayerRef.current?.batchDraw()
+    multiSelectedOutlineLayerRef.current?.batchDraw()
     selectedLabelLayerRef.current?.batchDraw()
   }
 
@@ -282,7 +319,8 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
 
     const item = getCatalogItem(element.type)
     const elementSize = getElementSceneSize(element)
-    const isSelected = selectedIdsRef.current.includes(id)
+    const isSelected =
+      selectedIdsRef.current.includes(id) || selectionPreviewIdsRef.current.includes(id)
     const isHovered = hoveredIdRef.current === id
     const outlineStrokeWidth = isSelected ? 2 : isHovered ? 4 : 0
     const visualNodes =
@@ -409,6 +447,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     })
 
     updateGridOverlay(nextViewport)
+    updateMultiSelectedOutline(nextViewport)
     updateSelectedLabel(nextViewport)
     if (Math.abs(previousScale - nextViewport.scale) > 0.0001) {
       setZoomPercent(Math.round(nextViewport.scale * 100))
@@ -631,6 +670,16 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       window.removeEventListener('catalog-drag-end', handleCatalogDragEnd)
     }
   }, [])
+
+  useEffect(() => {
+    const previousIds = new Set(selectionPreviewIdsRef.current)
+    const nextIds = new Set(selectionPreviewIds)
+    const idsToRefresh = new Set([...previousIds, ...nextIds])
+
+    selectionPreviewIdsRef.current = selectionPreviewIds
+    idsToRefresh.forEach((id) => applyElementVisualState(id))
+    elementsDisplayLayerRef.current?.batchDraw()
+  }, [selectionPreviewIds])
 
   useEffect(() => {
     const unsubscribe = useEditorStore.subscribe((state, previousState) => {
@@ -1032,7 +1081,60 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     layer.batchDraw()
   }
 
+  function updateMultiSelectedOutline(nextViewport: Viewport = viewportRef.current) {
+    const layer = multiSelectedOutlineLayerRef.current
+    const group = multiSelectedOutlineGroupRef.current
+    const rect = multiSelectedOutlineRectRef.current
+
+    if (!layer || !group || !rect) {
+      return
+    }
+
+    if (!selectedBounds) {
+      group.visible(false)
+      layer.batchDraw()
+      return
+    }
+
+    group.visible(true)
+    group.setAttrs({
+      x: nextViewport.x,
+      y: nextViewport.y,
+      scaleX: nextViewport.scale,
+      scaleY: nextViewport.scale,
+    })
+    rect.setAttrs({
+      x: selectedBounds.minX,
+      y: selectedBounds.minY,
+      width: selectedBounds.maxX - selectedBounds.minX,
+      height: selectedBounds.maxY - selectedBounds.minY,
+    })
+    layer.batchDraw()
+  }
+
   function getSelectedLabelMetrics(nextViewport: Viewport) {
+    if (selectedBounds && selectedOverlayIds.length > 1) {
+      const unitsPerMeter = getUnitsPerMeter(currentScene.canvas.unitsPerMeter)
+      const widthM = (selectedBounds.maxX - selectedBounds.minX) / unitsPerMeter
+      const heightM = (selectedBounds.maxY - selectedBounds.minY) / unitsPerMeter
+      const labelText = `长:${formatMeters(heightM)}m 宽:${formatMeters(widthM)}m`
+      const left = nextViewport.x + selectedBounds.minX * nextViewport.scale
+      const right = nextViewport.x + selectedBounds.maxX * nextViewport.scale
+      const bottom = nextViewport.y + selectedBounds.maxY * nextViewport.scale
+      const textWidth = Math.max(1, labelText.length * SELECTED_LABEL_FONT_SIZE * 0.6)
+      const width = textWidth + SELECTED_LABEL_PADDING_X * 2
+      const height =
+        SELECTED_LABEL_FONT_SIZE * SELECTED_LABEL_LINE_HEIGHT + SELECTED_LABEL_PADDING_Y * 2
+
+      return {
+        labelText,
+        x: (left + right) / 2 - width / 2,
+        y: bottom + SELECTED_LABEL_GAP,
+        width,
+        height,
+      }
+    }
+
     if (!selectedElement) {
       return null
     }
@@ -1088,8 +1190,16 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
 
   useEffect(() => {
     updateGridOverlay(viewportRef.current)
+    updateMultiSelectedOutline(viewportRef.current)
     updateSelectedLabel(viewportRef.current)
-  }, [currentScene.canvas.unitsPerMeter, currentScene.elements, selectedOverlayId, showGrid])
+  }, [
+    currentScene.canvas.unitsPerMeter,
+    currentScene.elements,
+    selectedBounds,
+    selectedOverlayId,
+    selectedOverlayIds,
+    showGrid,
+  ])
 
   const measureDistance =
     measureDraft === null
@@ -1195,6 +1305,53 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
               >
                 {(() => {
                   const item = getCatalogItem(dragPreview.type)
+                  if (dragPreview.type === 'charger' && chargerPreviewImage) {
+                    return (
+                      <KonvaImage
+                        height={52}
+                        image={chargerPreviewImage}
+                        offsetX={26}
+                        offsetY={26}
+                        opacity={0.72}
+                        width={52}
+                        x={dragPreview.x}
+                        y={dragPreview.y}
+                      />
+                    )
+                  }
+
+                  if (dragPreview.type === 'parking' && parkingPreviewImage) {
+                    return (
+                      <KonvaImage
+                        height={52}
+                        image={parkingPreviewImage}
+                        offsetX={26}
+                        offsetY={26}
+                        opacity={0.72}
+                        width={52}
+                        x={dragPreview.x}
+                        y={dragPreview.y}
+                      />
+                    )
+                  }
+
+                  if (dragPreview.type === 'storage') {
+                    if (storagePreviewImage) {
+                      return (
+                        <KonvaImage
+                          height={52}
+                          image={storagePreviewImage}
+                          offsetX={26}
+                          offsetY={26}
+                          opacity={0.72}
+                          width={52}
+                          x={dragPreview.x}
+                          y={dragPreview.y}
+                        />
+                      )
+                    }
+                  }
+
                   return (
                     <Rect
                       cornerRadius={8}
@@ -1203,8 +1360,6 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                       offsetX={26}
                       offsetY={26}
                       opacity={0.55}
-                      stroke="#ffffff"
-                      strokeWidth={2}
                       width={52}
                       x={dragPreview.x}
                       y={dragPreview.y}
@@ -1282,7 +1437,9 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
               {currentScene.elements.map((element) => {
                 const item = getCatalogItem(element.type)
                 const elementSize = getElementSceneSize(element)
-                const isSelected = selectedIdsRef.current.includes(element.id)
+                const isSelected =
+                  selectedIdsRef.current.includes(element.id) ||
+                  selectionPreviewIdsRef.current.includes(element.id)
                 if (element.type === 'parking') {
                   const parkingParams = normalizeParkingParams(element.params as ParkingParams)
                   const parkingCount = parkingParams.slots.length
@@ -1349,12 +1506,42 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                     rotation={element.rotation}
                     x={element.x}
                     y={element.y}
-                    >
+                  >
                     {element.type === 'charger' && chargerCanvasImage ? (
                       <>
                         <KonvaImage
                           height={elementSize.height}
                           image={chargerCanvasImage}
+                          listening={false}
+                          offsetX={elementSize.width / 2}
+                          offsetY={elementSize.height / 2}
+                          width={elementSize.width}
+                        />
+                        <Rect
+                          name="element-body"
+                          fillEnabled={false}
+                          height={elementSize.height}
+                          listening={false}
+                          offsetX={elementSize.width / 2}
+                          offsetY={elementSize.height / 2}
+                          strokeEnabled={false}
+                          width={elementSize.width}
+                        />
+                      </>
+                    ) : element.type === 'storage' &&
+                      (normalizeStorageModel((element.params as StorageParams).model) ===
+                      'storage_418'
+                        ? storage418Image
+                        : storage261Image) ? (
+                      <>
+                        <KonvaImage
+                          height={elementSize.height}
+                          image={
+                            normalizeStorageModel((element.params as StorageParams).model) ===
+                            'storage_418'
+                              ? storage418Image ?? undefined
+                              : storage261Image ?? undefined
+                          }
                           listening={false}
                           offsetX={elementSize.width / 2}
                           offsetY={elementSize.height / 2}
@@ -1409,27 +1596,17 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
             </Group>
           </Layer>
 
-          {selectedBounds && (
-            <Layer listening={false}>
-              <Group
-                scaleX={viewport.scale}
-                scaleY={viewport.scale}
-                x={viewport.x}
-                y={viewport.y}
-              >
-                <Rect
-                  fillEnabled={false}
-                  height={selectedBounds.maxY - selectedBounds.minY}
-                  stroke={ELEMENT_HOVER_OUTLINE}
-                  strokeScaleEnabled={false}
-                  strokeWidth={2}
-                  width={selectedBounds.maxX - selectedBounds.minX}
-                  x={selectedBounds.minX}
-                  y={selectedBounds.minY}
-                />
-              </Group>
-            </Layer>
-          )}
+          <Layer listening={false} ref={multiSelectedOutlineLayerRef}>
+            <Group ref={multiSelectedOutlineGroupRef} visible={false}>
+              <Rect
+                ref={multiSelectedOutlineRectRef}
+                fillEnabled={false}
+                stroke={ELEMENT_HOVER_OUTLINE}
+                strokeScaleEnabled={false}
+                strokeWidth={2}
+              />
+            </Group>
+          </Layer>
 
           <Layer>
             <Group

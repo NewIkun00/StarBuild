@@ -1,14 +1,19 @@
 import { getCatalogItem } from './catalog'
 import { getChargerSceneSize } from './chargerCatalog'
 import { normalizeParkingParams } from './parkingSlots'
+import { getStorageSceneSize } from './storageCatalog'
 import { getUnitsPerMeter, metersToSceneUnits } from './units'
-import type { ChargerParams, ParkingParams, SceneElement } from '../types/scene'
+import type { ChargerParams, ParkingParams, SceneElement, StorageParams } from '../types/scene'
 
 export function getElementSceneSize(element: SceneElement) {
   const item = getCatalogItem(element.type)
 
   if (element.type === 'charger') {
     return getChargerSceneSize(element.params as ChargerParams)
+  }
+
+  if (element.type === 'storage') {
+    return getStorageSceneSize(element.params as StorageParams)
   }
 
   if (element.type !== 'parking') {

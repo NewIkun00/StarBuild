@@ -46,7 +46,7 @@ export interface ChargerParams {
 }
 
 export interface StorageParams {
-  model: 'storage_215kwh' | 'storage_372kwh'
+  model: 'storage_261' | 'storage_418'
 }
 
 export type ElementParams = ParkingParams | ChargerParams | StorageParams
@@ -172,7 +172,7 @@ export function createTemplateScene(): SceneDocument {
         y: 260,
         rotation: 0,
         params: {
-          model: 'storage_215kwh',
+          model: 'storage_261',
         },
       },
     ],

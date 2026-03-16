@@ -62,7 +62,7 @@ export const sceneCatalog: CatalogItem[] = [
     color: '#34d399',
     size: { width: 92, height: 92 },
     createDefaultParams: (): StorageParams => ({
-      model: 'storage_215kwh',
+      model: 'storage_261',
     }),
   },
 ]

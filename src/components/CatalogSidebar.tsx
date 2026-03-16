@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import chargerPreviewImage from '../../assets/CDZ555.png'
 import collapseArrow from '../../assets/XiaLaaa.png'
 import parkingPreviewImage from '../../assets/TYxiaochechewei.png'
+import storagePreviewImage from '../../assets/SBchunenggui.png'
 import previewTileImage from '../../assets/Tuyuan99.png'
 import { tileCatalog, type CatalogItem } from '../lib/catalog'
 import { useEditorStore } from '../store/editorStore'
@@ -17,6 +18,7 @@ export function CatalogSidebar({ catalog }: CatalogSidebarProps) {
   const [openSection, setOpenSection] = useState<
     'parking' | 'equipment' | 'business' | 'ground' | null
   >('parking')
+  const transparentDragImageRef = useRef<HTMLImageElement | null>(null)
 
   const parkingItems = catalog.filter((item) => item.type === 'parking')
   const equipmentItems = catalog.filter((item) => item.type !== 'parking')
@@ -48,10 +50,13 @@ export function CatalogSidebar({ catalog }: CatalogSidebarProps) {
       }),
     )
 
-    const dragImage = document.createElement('canvas')
-    dragImage.width = 1
-    dragImage.height = 1
-    event.dataTransfer.setDragImage(dragImage, 0, 0)
+    if (!transparentDragImageRef.current) {
+      const transparentImage = new window.Image()
+      transparentImage.src =
+        'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+      transparentDragImageRef.current = transparentImage
+    }
+    event.dataTransfer.setDragImage(transparentDragImageRef.current, 0, 0)
   }
 
   function handleDragEnd() {
@@ -137,6 +142,8 @@ export function CatalogSidebar({ catalog }: CatalogSidebarProps) {
                     >
                       {item.type === 'charger' ? (
                         <img alt="" className="catalog-tile-icon" src={chargerPreviewImage} />
+                      ) : item.type === 'storage' ? (
+                        <img alt="" className="catalog-tile-icon" src={storagePreviewImage} />
                       ) : (
                         <span
                           className="catalog-tile-chip"
