@@ -25,6 +25,8 @@ const SELECTED_LABEL_PADDING_Y = 8
 const SELECTED_LABEL_RADIUS = 4
 const SELECTED_LABEL_FONT_SIZE = 12
 const SELECTED_LABEL_LINE_HEIGHT = 1
+const SELECTED_LABEL_FONT_FAMILY =
+  "'Source Han Sans SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif"
 
 Konva.dragButtons = [0]
 
@@ -141,8 +143,19 @@ function getElementBounds(element: { x: number; y: number; rotation: number }, s
   }
 }
 
-  function doBoundsIntersect(a: Bounds, b: Bounds) {
+function doBoundsIntersect(a: Bounds, b: Bounds) {
   return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY)
+}
+
+function measureSelectedLabelTextWidth(text: string) {
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+  if (!context) {
+    return Math.max(1, text.length * SELECTED_LABEL_FONT_SIZE)
+  }
+
+  context.font = `${SELECTED_LABEL_FONT_SIZE}px ${SELECTED_LABEL_FONT_FAMILY}`
+  return Math.ceil(context.measureText(text).width)
 }
 
 function cloneSceneElements(elements: SceneElement[]) {
@@ -1288,7 +1301,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       const left = nextViewport.x + selectedBounds.minX * nextViewport.scale
       const right = nextViewport.x + selectedBounds.maxX * nextViewport.scale
       const bottom = nextViewport.y + selectedBounds.maxY * nextViewport.scale
-      const textWidth = Math.max(1, labelText.length * SELECTED_LABEL_FONT_SIZE * 0.6)
+      const textWidth = measureSelectedLabelTextWidth(labelText)
       const width = textWidth + SELECTED_LABEL_PADDING_X * 2
       const height =
         SELECTED_LABEL_FONT_SIZE * SELECTED_LABEL_LINE_HEIGHT + SELECTED_LABEL_PADDING_Y * 2
@@ -1316,7 +1329,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       Math.abs(scaledWidth * Math.sin(radians)) + Math.abs(scaledHeight * Math.cos(radians))
     const centerX = nextViewport.x + selectedElement.x * nextViewport.scale
     const centerY = nextViewport.y + selectedElement.y * nextViewport.scale
-    const textWidth = Math.max(1, labelText.length * SELECTED_LABEL_FONT_SIZE * 0.6)
+    const textWidth = measureSelectedLabelTextWidth(labelText)
     const width = textWidth + SELECTED_LABEL_PADDING_X * 2
     const height =
       SELECTED_LABEL_FONT_SIZE * SELECTED_LABEL_LINE_HEIGHT + SELECTED_LABEL_PADDING_Y * 2
@@ -2142,7 +2155,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                 <Text
                   ref={selectedLabelTextRef}
                   fill="#ffffff"
-                  fontFamily="'Source Han Sans SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif"
+                  fontFamily={SELECTED_LABEL_FONT_FAMILY}
                   fontSize={SELECTED_LABEL_FONT_SIZE}
                   fontStyle="normal"
                   lineHeight={SELECTED_LABEL_LINE_HEIGHT}

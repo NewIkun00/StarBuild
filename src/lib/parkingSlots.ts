@@ -1,5 +1,13 @@
 import type { ParkingParams, ParkingSlot, SceneDocument, SceneElement } from '../types/scene'
 
+export function normalizeSteelColor(color: string | undefined) {
+  const raw = (color ?? '').trim()
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
+    return raw.toUpperCase()
+  }
+  return '#FFFFFF'
+}
+
 export function createParkingSlots(count: number): ParkingSlot[] {
   return Array.from({ length: count }, (_, index) => ({
     id: crypto.randomUUID(),
@@ -39,6 +47,7 @@ export function normalizeParkingParams(params: ParkingParams): ParkingParams {
     ...params,
     count,
     carportStyle: params.carportStyle ?? 'y',
+    steelColor: normalizeSteelColor(params.steelColor),
     slots: syncParkingSlots(params.slots, count),
   }
 }

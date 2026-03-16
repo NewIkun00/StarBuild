@@ -6,50 +6,11 @@ import yPanelModelSrc from '../../assets/ChePeng/YChePengBan.glb'
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { getCatalogItem, getTileCatalogItem } from '../lib/catalog'
-import { normalizeParkingParams } from '../lib/parkingSlots'
+import { normalizeParkingParams, normalizeSteelColor } from '../lib/parkingSlots'
 import { getElementSceneSize } from '../lib/sceneGeometry'
 import { metersToSceneUnits } from '../lib/units'
 import { useEditorStore } from '../store/editorStore'
 import type { ParkingParams } from '../types/scene'
-
-function createGroundTexture() {
-  const canvas = document.createElement('canvas')
-  canvas.width = 1024
-  canvas.height = 1024
-  const context = canvas.getContext('2d')
-  if (!context) {
-    return null
-  }
-
-  context.fillStyle = '#6b7074'
-  context.fillRect(0, 0, canvas.width, canvas.height)
-
-  for (let i = 0; i < 18000; i += 1) {
-    const value = 88 + Math.random() * 34
-    context.fillStyle = `rgba(${value}, ${value}, ${value}, ${0.05 + Math.random() * 0.08})`
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    const size = 1 + Math.random() * 2.5
-    context.fillRect(x, y, size, size)
-  }
-
-  for (let i = 0; i < 120; i += 1) {
-    context.strokeStyle = `rgba(255,255,255,${0.015 + Math.random() * 0.025})`
-    context.lineWidth = 1 + Math.random() * 2
-    context.beginPath()
-    context.moveTo(Math.random() * canvas.width, Math.random() * canvas.height)
-    context.lineTo(Math.random() * canvas.width, Math.random() * canvas.height)
-    context.stroke()
-  }
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.wrapS = THREE.RepeatWrapping
-  texture.wrapT = THREE.RepeatWrapping
-  texture.repeat.set(18, 18)
-  texture.colorSpace = THREE.SRGBColorSpace
-  texture.anisotropy = 8
-  return texture
-}
 
 function prepareModelForScene(root: THREE.Object3D) {
   root.traverse((child) => {
@@ -109,7 +70,7 @@ function configureSolarPanelMaterial(root: THREE.Object3D) {
       configured.bumpMap = cloneTextureWithRepeat(configured.bumpMap, 30, 30)
       configured.alphaMap = cloneTextureWithRepeat(configured.alphaMap, 30, 30)
       configured.metalness = 0.9
-      configured.roughness = 0.2
+      configured.roughness = 0.1
       configured.needsUpdate = true
       return configured
     })
@@ -165,6 +126,7 @@ function addYParkingColumns(
   slotCount: number,
   width: number,
   height: number,
+  steelColor: string,
 ) {
   const slotWidth = width / slotCount
   const rearEdgeZ = -height / 2
@@ -172,6 +134,7 @@ function addYParkingColumns(
 
   for (const boundaryIndex of columnBoundaries) {
     const column = template.clone(true)
+    tintAllMeshMaterials(column, steelColor)
     column.rotation.y = Math.PI
     column.position.set(
       -width / 2 + slotWidth * boundaryIndex,
@@ -187,6 +150,7 @@ function addYParkingPanels(
   template: THREE.Object3D,
   width: number,
   height: number,
+  steelColor: string,
 ) {
   const rearEdgeZ = -height / 2
   const panelWidth = metersToSceneUnits(1.2)
@@ -195,6 +159,7 @@ function addYParkingPanels(
 
   for (let panelIndex = 0; panelIndex < panelCount; panelIndex += 1) {
     const panel = template.clone(true)
+    tintMeshMaterialsByName(panel, ['光伏边缘颜色.002'], steelColor)
     panel.rotation.y = Math.PI
     panel.position.set(
       panelStartX + panelWidth * panelIndex + panelWidth / 2,
@@ -203,6 +168,60 @@ function addYParkingPanels(
     )
     group.add(panel)
   }
+}
+
+function tintAllMeshMaterials(root: THREE.Object3D, color: string) {
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) {
+      return
+    }
+
+    const sourceMaterials = Array.isArray(child.material) ? child.material : [child.material]
+    const tintedMaterials = sourceMaterials.map((material) => {
+      if (!(material instanceof THREE.MeshStandardMaterial)) {
+        return material
+      }
+
+      const cloned = material.clone()
+      cloned.color.set(color)
+      return cloned
+    })
+
+    child.material = Array.isArray(child.material) ? tintedMaterials : tintedMaterials[0]
+  })
+}
+
+function tintMeshMaterialsByName(root: THREE.Object3D, materialNames: string[], color: string) {
+  const materialNameSet = new Set(materialNames)
+
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) {
+      return
+    }
+
+    if (!Array.isArray(child.material)) {
+      if (!('color' in child.material) || !materialNameSet.has(child.material.name)) {
+        return
+      }
+
+      const cloned = child.material.clone()
+      cloned.color.set(color)
+      child.material = cloned
+      return
+    }
+
+    const tintedMaterials = child.material.map((material) => {
+      if (!('color' in material) || !materialNameSet.has(material.name)) {
+        return material
+      }
+
+      const cloned = material.clone()
+      cloned.color.set(color)
+      return cloned
+    })
+
+    child.material = tintedMaterials
+  })
 }
 
 export function ThreePreview() {
@@ -259,6 +278,7 @@ export function ThreePreview() {
       slotCount: number
       width: number
       height: number
+      steelColor: string
     }> = []
     let yColumnTemplate: THREE.Object3D | null = null
     let yPanelTemplate: THREE.Object3D | null = null
@@ -278,6 +298,7 @@ export function ThreePreview() {
           target.slotCount,
           target.width,
           target.height,
+          target.steelColor,
         )
       })
     })
@@ -298,6 +319,7 @@ export function ThreePreview() {
             yPanelTemplate as THREE.Object3D,
             target.width,
             target.height,
+            target.steelColor,
           )
       })
     })
@@ -364,21 +386,6 @@ export function ThreePreview() {
     fillLight.position.set(-520, 380, -260)
     scene.add(fillLight)
 
-    const groundTexture = createGroundTexture()
-    const ground = new THREE.Mesh(
-      new THREE.BoxGeometry(sceneData.canvas.width, 6, sceneData.canvas.height),
-      new THREE.MeshStandardMaterial({
-        color: '#7a8084',
-        map: groundTexture,
-        roughness: 0.96,
-        metalness: 0.02,
-        envMapIntensity: 0.22,
-      }),
-    )
-    ground.position.set(sceneData.canvas.width / 2, -3, sceneData.canvas.height / 2)
-    ground.receiveShadow = true
-    scene.add(ground)
-
     sceneData.tiles.forEach((tile) => {
       const tileInfo = getTileCatalogItem(tile.tileType)
       const material = new THREE.MeshStandardMaterial({
@@ -413,6 +420,7 @@ export function ThreePreview() {
       if (element.type === 'parking') {
         const parkingParams = normalizeParkingParams(element.params as ParkingParams)
         const parkingCount = parkingParams.slots.length
+        const steelColor = normalizeSteelColor(parkingParams.steelColor)
         const slotWidth = elementSize.width / parkingCount
         const parkingBorderInset = metersToSceneUnits(0.1)
         const parkingBorderHeight = metersToSceneUnits(0.01)
@@ -467,6 +475,7 @@ export function ThreePreview() {
               parkingCount,
               elementSize.width,
               elementSize.height,
+              steelColor,
             )
           }
           if (yPanelTemplate) {
@@ -475,6 +484,7 @@ export function ThreePreview() {
               yPanelTemplate,
               elementSize.width,
               elementSize.height,
+              steelColor,
             )
           }
           if (!yColumnTemplate || !yPanelTemplate) {
@@ -483,6 +493,7 @@ export function ThreePreview() {
               slotCount: parkingCount,
               width: elementSize.width,
               height: elementSize.height,
+              steelColor,
             })
           }
         }
@@ -728,7 +739,6 @@ export function ThreePreview() {
       domElement.removeEventListener('wheel', handleWheel)
       domElement.removeEventListener('contextmenu', handleContextMenu)
       renderer.dispose()
-      groundTexture?.dispose()
       environmentMap?.dispose()
       hdrTexture?.dispose()
       pmremGenerator.dispose()

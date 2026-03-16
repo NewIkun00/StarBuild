@@ -38,6 +38,7 @@ export interface ParkingParams {
   slots: ParkingSlot[]
   canopyType: 'none' | 'pv' | 'film'
   carportStyle?: 'y' | 'seven'
+  steelColor?: string
   parkingType: 'ordinary' | 'charging' | 'standard' | 'accessible'
 }
 
@@ -132,6 +133,7 @@ export function createTemplateScene(): SceneDocument {
           ],
           canopyType: 'none',
           carportStyle: 'y',
+          steelColor: '#FFFFFF',
           parkingType: 'ordinary',
         },
       },
@@ -154,6 +156,7 @@ export function createTemplateScene(): SceneDocument {
           ],
           canopyType: 'none',
           carportStyle: 'y',
+          steelColor: '#FFFFFF',
           parkingType: 'ordinary',
         },
       },

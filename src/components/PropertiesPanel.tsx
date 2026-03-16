@@ -6,7 +6,7 @@ import {
   chargerTypeOptions,
   normalizeChargerType,
 } from '../lib/chargerCatalog'
-import { normalizeParkingParams } from '../lib/parkingSlots'
+import { normalizeParkingParams, normalizeSteelColor } from '../lib/parkingSlots'
 import { normalizeStorageModel, storageModelOptions } from '../lib/storageCatalog'
 import { useEditorStore } from '../store/editorStore'
 import type {
@@ -248,19 +248,77 @@ function ParkingCanopyFields({
         onChange={(value) => onChange({ canopyType: value as ParkingParams['canopyType'] })}
       />
       {params.canopyType === 'pv' && (
-        <SelectField
-          label="车棚造型"
-          value={params.carportStyle ?? 'y'}
-          options={[
-            { label: 'Y字车棚', value: 'y' },
-            { label: '7字车棚', value: 'seven' },
-          ]}
-          onChange={(value) =>
-            onChange({ carportStyle: value as NonNullable<ParkingParams['carportStyle']> })
-          }
-        />
+        <>
+          <SelectField
+            label="车棚造型"
+            value={params.carportStyle ?? 'y'}
+            options={[
+              { label: 'Y字车棚', value: 'y' },
+              { label: '7字车棚', value: 'seven' },
+            ]}
+            onChange={(value) =>
+              onChange({ carportStyle: value as NonNullable<ParkingParams['carportStyle']> })
+            }
+          />
+          <ColorField
+            label="钢构颜色"
+            value={normalizeSteelColor(params.steelColor)}
+            onChange={(value) => onChange({ steelColor: value })}
+          />
+        </>
       )}
     </>
+  )
+}
+
+function ColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  const [draft, setDraft] = useState(value)
+  const pickerRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    setDraft(value)
+  }, [value])
+
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <div className="field-color-row">
+        <input
+          value={draft}
+          onBlur={() => {
+            const normalized = normalizeSteelColor(draft)
+            setDraft(normalized)
+            onChange(normalized)
+          }}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <button
+          aria-label={`${label}颜色选择器`}
+          className="color-swatch-trigger"
+          style={{ backgroundColor: normalizeSteelColor(draft) }}
+          type="button"
+          onClick={() => pickerRef.current?.click()}
+        />
+        <input
+          ref={pickerRef}
+          className="color-picker-native"
+          type="color"
+          value={normalizeSteelColor(draft)}
+          onChange={(event) => {
+            setDraft(event.target.value.toUpperCase())
+            onChange(event.target.value.toUpperCase())
+          }}
+        />
+      </div>
+    </div>
   )
 }
 
