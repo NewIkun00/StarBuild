@@ -12,7 +12,7 @@ import { normalizeParkingParams } from '../lib/parkingSlots'
 import { normalizeStorageModel } from '../lib/storageCatalog'
 import { getElementMeterSize, getElementSceneSize } from '../lib/sceneGeometry'
 import { getUnitsPerMeter } from '../lib/units'
-import type { ElementType, ParkingParams, StorageParams } from '../types/scene'
+import type { ElementType, ParkingParams, SceneElement, StorageParams } from '../types/scene'
 import { useEditorStore } from '../store/editorStore'
 
 const MIN_SCALE = 0.3
@@ -65,6 +65,7 @@ type SelectionDraft = {
   startY: number
   endX: number
   endY: number
+  append: boolean
 }
 
 type Bounds = {
@@ -72,6 +73,10 @@ type Bounds = {
   minY: number
   maxX: number
   maxY: number
+}
+
+type ClipboardSnapshot = {
+  elements: SceneElement[]
 }
 
 function readDraggedElementType(dataTransfer: DataTransfer | null): ElementType | null {
@@ -136,8 +141,12 @@ function getElementBounds(element: { x: number; y: number; rotation: number }, s
   }
 }
 
-function doBoundsIntersect(a: Bounds, b: Bounds) {
+  function doBoundsIntersect(a: Bounds, b: Bounds) {
   return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY)
+}
+
+function cloneSceneElements(elements: SceneElement[]) {
+  return JSON.parse(JSON.stringify(elements)) as SceneElement[]
 }
 
 export const EditorCanvas2D = memo(function EditorCanvas2D() {
@@ -147,10 +156,13 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const showGrid = useEditorStore((state) => state.showGrid)
   const measureMode = useEditorStore((state) => state.measureMode)
   const moveElement = useEditorStore((state) => state.moveElement)
+  const moveElementsBy = useEditorStore((state) => state.moveElementsBy)
   const selectElement = useEditorStore((state) => state.selectElement)
   const selectElements = useEditorStore((state) => state.selectElements)
   const addElementAt = useEditorStore((state) => state.addElementAt)
+  const insertElementsAt = useEditorStore((state) => state.insertElementsAt)
   const deleteSelectedElement = useEditorStore((state) => state.deleteSelectedElement)
+  const undo = useEditorStore((state) => state.undo)
   const paintTile = useEditorStore((state) => state.paintTile)
   const clearTile = useEditorStore((state) => state.clearTile)
   const setMeasureMode = useEditorStore((state) => state.setMeasureMode)
@@ -176,11 +188,21 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const panStartRef = useRef<{ x: number; y: number } | null>(null)
   const panOriginRef = useRef<{ x: number; y: number } | null>(null)
   const initializedSceneRef = useRef<string | null>(null)
+  const multiDragOriginRef = useRef<{
+    ids: string[]
+    bounds: Bounds
+    positions: Record<string, { x: number; y: number }>
+    pointerStart: { x: number; y: number }
+  } | null>(null)
+  const altCloneSourceRef = useRef<{ x: number; y: number } | null>(null)
+  const altCloneOriginalPositionsRef = useRef<Record<string, { x: number; y: number }>>({})
   const selectedIdRef = useRef<string | null>(useEditorStore.getState().selectedId)
   const selectedIdsRef = useRef<string[]>(useEditorStore.getState().selectedIds)
   const selectionPreviewIdsRef = useRef<string[]>([])
   const hoveredIdRef = useRef<string | null>(null)
   const viewportRef = useRef<Viewport>({ x: 0, y: 0, scale: 1 })
+  const lastPointerWorldRef = useRef<{ x: number; y: number } | null>(null)
+  const clipboardRef = useRef<ClipboardSnapshot | null>(null)
   const pendingViewportRef = useRef<Viewport | null>(null)
   const frameRef = useRef<number | null>(null)
   const isPanningRef = useRef(false)
@@ -513,7 +535,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     }
   }
 
-  function beginSelection() {
+  function beginSelection(append: boolean) {
     const point = getPointerWorldPosition()
     if (!point) {
       return
@@ -525,7 +547,12 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       startY: point.y,
       endX: point.x,
       endY: point.y,
+      append,
     })
+  }
+
+  function mergeSelectionIds(ids: string[]) {
+    return Array.from(new Set([...selectedIdsRef.current, ...ids]))
   }
 
   function finalizeSelection(selection: SelectionDraft) {
@@ -549,9 +576,11 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     perfRef.current.selectCount += 1
     const start = performance.now()
     if (pickedIds.length === 0) {
-      selectElement(null)
+      if (!selection.append) {
+        selectElement(null)
+      }
     } else {
-      selectElements(pickedIds)
+      selectElements(selection.append ? mergeSelectionIds(pickedIds) : pickedIds)
     }
     perfRef.current.selectMs = Number((performance.now() - start).toFixed(2))
   }
@@ -566,6 +595,135 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       x: point.x,
       y: point.y,
     })
+  }
+
+  function beginElementsDrag(
+    ids: string[],
+    bounds: Bounds,
+    positions: Record<string, { x: number; y: number }>,
+    pointerStart: { x: number; y: number },
+  ) {
+    multiDragOriginRef.current = {
+      ids,
+      bounds,
+      positions,
+      pointerStart,
+    }
+  }
+
+  function beginMultiSelectionDrag() {
+    if (!selectedBounds || selectedOverlayIds.length < 2) {
+      return
+    }
+
+    const pointer = getPointerWorldPosition()
+    if (!pointer) {
+      return
+    }
+
+    beginElementsDrag(
+      selectedOverlayIds,
+      selectedBounds,
+      Object.fromEntries(
+        selectedOverlayIds
+          .map((id) => currentScene.elements.find((element) => element.id === id))
+          .filter((element): element is (typeof currentScene.elements)[number] => !!element)
+          .map((element) => [element.id, { x: element.x, y: element.y }]),
+      ),
+      pointer,
+    )
+  }
+
+  function previewMultiSelectionDrag(deltaX: number, deltaY: number) {
+    if (!multiDragOriginRef.current) {
+      return
+    }
+
+    for (const id of multiDragOriginRef.current.ids) {
+      const origin = multiDragOriginRef.current.positions[id]
+      const displayNode = elementNodeMapRef.current[id]
+      const hitNode = elementHitNodeMapRef.current[id]
+      if (origin && displayNode) {
+        displayNode.position({
+          x: origin.x + deltaX,
+          y: origin.y + deltaY,
+        })
+      }
+      if (origin && hitNode) {
+        hitNode.position({
+          x: origin.x + deltaX,
+          y: origin.y + deltaY,
+        })
+      }
+    }
+    elementsDisplayLayerRef.current?.batchDraw()
+  }
+
+  function endMultiSelectionDrag(deltaX: number, deltaY: number) {
+    if (!multiDragOriginRef.current) {
+      return
+    }
+
+    moveElementsBy(multiDragOriginRef.current.ids, deltaX, deltaY)
+    multiDragOriginRef.current = null
+    altCloneSourceRef.current = null
+    altCloneOriginalPositionsRef.current = {}
+  }
+
+  function duplicateElementsForDrag(sourceElements: SceneElement[]) {
+    if (sourceElements.length === 0) {
+      return false
+    }
+
+    const pointer = getPointerWorldPosition()
+    if (!pointer) {
+      return false
+    }
+
+    const sourceBounds = sourceElements
+      .map((element) => getElementBounds(element, getElementSceneSize(element)))
+      .reduce<Bounds>(
+        (accumulator, bounds) => ({
+          minX: Math.min(accumulator.minX, bounds.minX),
+          minY: Math.min(accumulator.minY, bounds.minY),
+          maxX: Math.max(accumulator.maxX, bounds.maxX),
+          maxY: Math.max(accumulator.maxY, bounds.maxY),
+        }),
+        {
+          minX: Number.POSITIVE_INFINITY,
+          minY: Number.POSITIVE_INFINITY,
+          maxX: Number.NEGATIVE_INFINITY,
+          maxY: Number.NEGATIVE_INFINITY,
+        },
+      )
+    const centerX = (sourceBounds.minX + sourceBounds.maxX) / 2
+    const centerY = (sourceBounds.minY + sourceBounds.maxY) / 2
+    altCloneOriginalPositionsRef.current = Object.fromEntries(
+      sourceElements.map((element) => [element.id, { x: element.x, y: element.y }]),
+    )
+    const duplicatedIds = insertElementsAt(cloneSceneElements(sourceElements), centerX, centerY)
+    if (duplicatedIds.length === 0) {
+      return false
+    }
+
+    const nextScene = useEditorStore.getState().scene
+    if (!nextScene) {
+      return false
+    }
+
+    beginElementsDrag(
+      duplicatedIds,
+      sourceBounds,
+      Object.fromEntries(
+        duplicatedIds
+          .map((id) => nextScene.elements.find((element) => element.id === id))
+          .filter((element): element is (typeof nextScene.elements)[number] => !!element)
+          .map((element) => [element.id, { x: element.x, y: element.y }]),
+      ),
+      pointer,
+    )
+    altCloneSourceRef.current = pointer
+    return true
   }
 
   useEffect(() => {
@@ -818,7 +976,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       !activeTileBrush &&
       event.target.name() === 'canvas-hit-area'
     ) {
-      beginSelection()
+      beginSelection(event.evt.shiftKey)
       return
     }
 
@@ -842,8 +1000,13 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   }
 
   function handlePointerMove(event: Konva.KonvaEventObject<MouseEvent>) {
+    const pointer = getPointerWorldPosition()
+    if (pointer) {
+      lastPointerWorldRef.current = pointer
+    }
+
     if (measureDraft) {
-      const point = getPointerWorldPosition()
+      const point = pointer
       if (!point) {
         return
       }
@@ -860,7 +1023,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     }
 
     if (selectionDraft) {
-      const point = getPointerWorldPosition()
+      const point = pointer
       if (!point) {
         return
       }
@@ -916,7 +1079,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     }, 0)
   }
 
-  function handleCanvasClick() {
+  function handleCanvasClick(event?: Konva.KonvaEventObject<MouseEvent>) {
     if (measureMode) {
       return
     }
@@ -927,6 +1090,10 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
 
     if (didSelectionRef.current) {
       didSelectionRef.current = false
+      return
+    }
+
+    if (event?.evt.shiftKey) {
       return
     }
 
@@ -1173,20 +1340,59 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
         !!target?.isContentEditable
 
       if (isEditableTarget || !selectedId) {
+        if (
+          isEditableTarget ||
+          (!(event.ctrlKey || event.metaKey) && event.key !== 'Delete' && event.key !== 'Backspace')
+        ) {
+          return
+        }
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+        if (selectedIdsRef.current.length === 0) {
+          return
+        }
+        event.preventDefault()
+        clipboardRef.current = {
+          elements: cloneSceneElements(
+            currentScene.elements.filter((element) => selectedIdsRef.current.includes(element.id)),
+          ),
+        }
         return
       }
 
-      if (event.key !== 'Delete' && event.key !== 'Backspace') {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+        if (!clipboardRef.current || clipboardRef.current.elements.length === 0) {
+          return
+        }
+        event.preventDefault()
+        const targetPoint = lastPointerWorldRef.current ?? getViewportCenterWorldPosition()
+        insertElementsAt(
+          cloneSceneElements(clipboardRef.current.elements),
+          targetPoint.x,
+          targetPoint.y,
+        )
         return
       }
 
-      event.preventDefault()
-      deleteSelectedElement()
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        undo()
+        return
+      }
+
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (selectedIdsRef.current.length === 0) {
+          return
+        }
+        event.preventDefault()
+        deleteSelectedElement()
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [deleteSelectedElement, selectedId])
+  }, [currentScene.elements, deleteSelectedElement, insertElementsAt, selectedId, undo])
 
   useEffect(() => {
     updateGridOverlay(viewportRef.current)
@@ -1236,6 +1442,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
           }
           event.preventDefault()
           event.dataTransfer.dropEffect = 'copy'
+          lastPointerWorldRef.current = getWorldPositionFromClient(event.clientX, event.clientY)
           updateDragPreview(event.clientX, event.clientY, type)
         }}
         onDragLeave={(event) => {
@@ -1251,6 +1458,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
           }
           event.preventDefault()
           const point = getWorldPositionFromClient(event.clientX, event.clientY)
+          lastPointerWorldRef.current = point
           dragTypeRef.current = null
           setDragPreview(null)
           if (!point) {
@@ -1608,6 +1816,81 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
             </Group>
           </Layer>
 
+          {selectedBounds && selectedOverlayIds.length > 1 && (
+            <Layer>
+              <Group
+                scaleX={viewport.scale}
+                scaleY={viewport.scale}
+                x={viewport.x}
+                y={viewport.y}
+              >
+                <Rect
+                  draggable={!measureMode}
+                  fill="rgba(0,0,0,0.001)"
+                  height={selectedBounds.maxY - selectedBounds.minY}
+                  width={selectedBounds.maxX - selectedBounds.minX}
+                  x={selectedBounds.minX}
+                  y={selectedBounds.minY}
+                  onClick={() => {
+                    if (selectedOverlayIds.length > 0) {
+                      selectElements(selectedOverlayIds)
+                    }
+                  }}
+                  onDragStart={(event) => {
+                    if (event.evt.button !== 0 || !selectedBounds) {
+                      event.target.stopDrag()
+                      return
+                    }
+                    if (event.evt.altKey) {
+                      const sourceElements = currentScene.elements.filter((element) =>
+                        selectedOverlayIds.includes(element.id),
+                      )
+                      if (!duplicateElementsForDrag(sourceElements)) {
+                        event.target.stopDrag()
+                        return
+                      }
+                      return
+                    }
+                    beginMultiSelectionDrag()
+                  }}
+                  onDragMove={(event) => {
+                    if (event.evt.button !== 0 || !multiDragOriginRef.current) {
+                      event.target.stopDrag()
+                      return
+                    }
+                    const pointer = getPointerWorldPosition()
+                    if (!pointer) {
+                      return
+                    }
+                    const deltaX = pointer.x - multiDragOriginRef.current.pointerStart.x
+                    const deltaY = pointer.y - multiDragOriginRef.current.pointerStart.y
+                    previewMultiSelectionDrag(deltaX, deltaY)
+                  }}
+                  onDragEnd={(event) => {
+                    const origin = multiDragOriginRef.current
+                    if (!origin) {
+                      return
+                    }
+                    const pointer = getPointerWorldPosition()
+                    if (!pointer) {
+                      multiDragOriginRef.current = null
+                      altCloneSourceRef.current = null
+                      altCloneOriginalPositionsRef.current = {}
+                      return
+                    }
+                    const deltaX = pointer.x - origin.pointerStart.x
+                    const deltaY = pointer.y - origin.pointerStart.y
+                    endMultiSelectionDrag(deltaX, deltaY)
+                    event.target.position({
+                      x: origin.bounds.minX,
+                      y: origin.bounds.minY,
+                    })
+                  }}
+                />
+              </Group>
+            </Layer>
+          )}
+
           <Layer>
             <Group
               ref={tilesHitGroupRef}
@@ -1659,8 +1942,14 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                     width={elementSize.width}
                     x={element.x}
                     y={element.y}
-                    onClick={() => {
+                    onClick={(event) => {
                       if (measureMode) {
+                        return
+                      }
+                      if (event.evt.shiftKey) {
+                        if (!selectedIdsRef.current.includes(element.id)) {
+                          selectElements(mergeSelectionIds([element.id]))
+                        }
                         return
                       }
                       if (
@@ -1683,6 +1972,31 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                           })
                         }
                         elementsDisplayLayerRef.current?.batchDraw()
+                        return
+                      }
+
+                      if (
+                        selectedIdsRef.current.length > 1 &&
+                        selectedIdsRef.current.includes(element.id)
+                      ) {
+                        if (event.evt.altKey) {
+                          const sourceElements = currentScene.elements.filter((item) =>
+                            selectedIdsRef.current.includes(item.id),
+                          )
+                          if (!duplicateElementsForDrag(sourceElements)) {
+                            event.target.stopDrag()
+                          }
+                          return
+                        }
+                        beginMultiSelectionDrag()
+                        return
+                      }
+
+                      if (event.evt.altKey) {
+                        const sourceElement = currentScene.elements.find((item) => item.id === element.id)
+                        if (!sourceElement || !duplicateElementsForDrag([sourceElement])) {
+                          event.target.stopDrag()
+                        }
                       }
                     }}
                     onDragMove={(event) => {
@@ -1698,6 +2012,31 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                         elementsDisplayLayerRef.current?.batchDraw()
                         return
                       }
+
+                      if (multiDragOriginRef.current) {
+                        const pointer = getPointerWorldPosition()
+                        if (!pointer) {
+                          return
+                        }
+                        const originalPosition = altCloneOriginalPositionsRef.current[element.id]
+                        if (originalPosition) {
+                          event.target.position(originalPosition)
+                          const originalDisplayNode = elementNodeMapRef.current[element.id]
+                          if (originalDisplayNode) {
+                            originalDisplayNode.position(originalPosition)
+                          }
+                        }
+                        const activeId = multiDragOriginRef.current.ids[0]
+                        const origin = altCloneSourceRef.current ?? multiDragOriginRef.current.positions[element.id] ?? multiDragOriginRef.current.positions[activeId]
+                        if (!origin) {
+                          return
+                        }
+                        const deltaX = pointer.x - multiDragOriginRef.current.pointerStart.x
+                        const deltaY = pointer.y - multiDragOriginRef.current.pointerStart.y
+                        previewMultiSelectionDrag(deltaX, deltaY)
+                        return
+                      }
+
                       const displayNode = elementNodeMapRef.current[element.id]
                       if (!displayNode) {
                         return
@@ -1709,6 +2048,39 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                       elementsDisplayLayerRef.current?.batchDraw()
                     }}
                     onDragEnd={(event) => {
+                      if (
+                        multiDragOriginRef.current
+                      ) {
+                        const pointer = getPointerWorldPosition()
+                        const originalPosition = altCloneOriginalPositionsRef.current[element.id]
+                        if (originalPosition) {
+                          event.target.position(originalPosition)
+                          const originalDisplayNode = elementNodeMapRef.current[element.id]
+                          if (originalDisplayNode) {
+                            originalDisplayNode.position(originalPosition)
+                          }
+                        }
+                        const activeId = multiDragOriginRef.current.ids[0]
+                        const origin = altCloneSourceRef.current ?? multiDragOriginRef.current.positions[element.id] ?? multiDragOriginRef.current.positions[activeId]
+                        if (!origin) {
+                          multiDragOriginRef.current = null
+                          altCloneSourceRef.current = null
+                          altCloneOriginalPositionsRef.current = {}
+                          return
+                        }
+                        if (!pointer) {
+                          multiDragOriginRef.current = null
+                          altCloneSourceRef.current = null
+                          altCloneOriginalPositionsRef.current = {}
+                          return
+                        }
+                        endMultiSelectionDrag(
+                          pointer.x - multiDragOriginRef.current.pointerStart.x,
+                          pointer.y - multiDragOriginRef.current.pointerStart.y,
+                        )
+                        return
+                      }
+
                       moveElement(element.id, event.target.x(), event.target.y())
                     }}
                   />

@@ -20,6 +20,25 @@ interface PropertiesPanelProps {
   element: SceneElement | null
 }
 
+function AutoSelectNumberInput(
+  props: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'>,
+) {
+  return (
+    <input
+      {...props}
+      type="number"
+      onFocus={(event) => {
+        event.currentTarget.select()
+        props.onFocus?.(event)
+      }}
+      onPointerUp={(event) => {
+        window.requestAnimationFrame(() => event.currentTarget.select())
+        props.onPointerUp?.(event)
+      }}
+    />
+  )
+}
+
 export function PropertiesPanel({ element }: PropertiesPanelProps) {
   const scene = useEditorStore((state) => state.scene)
   const setSceneName = useEditorStore((state) => state.setSceneName)
@@ -64,19 +83,17 @@ export function PropertiesPanel({ element }: PropertiesPanelProps) {
               <div className="field">
                 <label>XY位置</label>
                 <div className="field-row">
-                  <input
+                  <AutoSelectNumberInput
                     aria-label="位置 X"
                     step="0.1"
-                    type="number"
                     value={Number(element.x.toFixed(2))}
                     onChange={(event) =>
                       moveElement(element.id, Number(event.target.value) || 0, element.y)
                     }
                   />
-                  <input
+                  <AutoSelectNumberInput
                     aria-label="位置 Y"
                     step="0.1"
-                    type="number"
                     value={Number(element.y.toFixed(2))}
                     onChange={(event) =>
                       moveElement(element.id, element.x, Number(event.target.value) || 0)
@@ -87,11 +104,10 @@ export function PropertiesPanel({ element }: PropertiesPanelProps) {
 
               <div className="field">
                 <label htmlFor="rotation">旋转角度</label>
-                <input
+                <AutoSelectNumberInput
                   id="rotation"
                   max={360}
                   min={0}
-                  type="number"
                   value={Math.round(element.rotation)}
                   onChange={(event) =>
                     updateElementRotation(element.id, Number(event.target.value) || 0)
@@ -166,15 +182,13 @@ function ParkingSizeFields({
       <div className="field">
         <label>车位长宽尺寸(m)</label>
         <div className="field-row">
-          <input
+          <AutoSelectNumberInput
             aria-label="车位长度"
-            type="number"
             value={params.lengthM ?? 5.5}
             onChange={(event) => onChange({ lengthM: Number(event.target.value) || 0 })}
           />
-          <input
+          <AutoSelectNumberInput
             aria-label="车位宽度"
-            type="number"
             value={params.widthM ?? 2.5}
             onChange={(event) => onChange({ widthM: Number(event.target.value) || 0 })}
           />
@@ -182,11 +196,10 @@ function ParkingSizeFields({
       </div>
       <div className="field">
         <label htmlFor="parkingCount">车位数量</label>
-        <input
+        <AutoSelectNumberInput
           id="parkingCount"
           min={1}
           step={1}
-          type="number"
           value={Math.max(1, Math.round(params.count ?? 1))}
           onChange={(event) =>
             onChange({ count: Math.max(1, Math.round(Number(event.target.value) || 1)) })
@@ -223,16 +236,31 @@ function ParkingCanopyFields({
   onChange: (params: Partial<ParkingParams>) => void
 }) {
   return (
-    <SelectField
-      label="车棚样式"
-      value={params.canopyType}
-      options={[
-        { label: '无车棚', value: 'none' },
-        { label: '光伏车棚', value: 'pv' },
-        { label: '薄膜车棚', value: 'film' },
-      ]}
-      onChange={(value) => onChange({ canopyType: value as ParkingParams['canopyType'] })}
-    />
+    <>
+      <SelectField
+        label="车棚样式"
+        value={params.canopyType}
+        options={[
+          { label: '无车棚', value: 'none' },
+          { label: '光伏车棚', value: 'pv' },
+          { label: '薄膜车棚', value: 'film' },
+        ]}
+        onChange={(value) => onChange({ canopyType: value as ParkingParams['canopyType'] })}
+      />
+      {params.canopyType === 'pv' && (
+        <SelectField
+          label="车棚造型"
+          value={params.carportStyle ?? 'y'}
+          options={[
+            { label: 'Y字车棚', value: 'y' },
+            { label: '7字车棚', value: 'seven' },
+          ]}
+          onChange={(value) =>
+            onChange({ carportStyle: value as NonNullable<ParkingParams['carportStyle']> })
+          }
+        />
+      )}
+    </>
   )
 }
 

@@ -41,6 +41,7 @@ export const sceneCatalog: CatalogItem[] = [
       count: 1,
       slots: createParkingSlots(1),
       canopyType: 'none',
+      carportStyle: 'y',
       parkingType: 'ordinary',
     }),
   },

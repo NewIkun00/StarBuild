@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { editorDb } from '../lib/db'
 import { getCatalogItem } from '../lib/catalog'
 import { normalizeParkingParams, normalizeSceneDocument } from '../lib/parkingSlots'
+import { getElementSceneSize } from '../lib/sceneGeometry'
 import {
   createDefaultScene,
   createTemplateScene,
@@ -16,12 +17,18 @@ import {
 } from '../types/scene'
 
 type AppView = 'home' | 'editor'
+const MAX_UNDO_STEPS = 10
 
 export interface SceneSummary {
   id: string
   name: string
   updatedAt: string
   elementCount: number
+}
+
+interface HistoryEntry {
+  scene: SceneDocument
+  selectedIds: string[]
 }
 
 const sceneTemplates: SceneTemplate[] = [
@@ -35,6 +42,87 @@ const sceneTemplates: SceneTemplate[] = [
 
 function cloneScene(scene: SceneDocument): SceneDocument {
   return JSON.parse(JSON.stringify(scene)) as SceneDocument
+}
+
+function cloneHistoryEntry(entry: HistoryEntry): HistoryEntry {
+  return {
+    scene: cloneScene(entry.scene),
+    selectedIds: [...entry.selectedIds],
+  }
+}
+
+function pushHistoryEntry(history: HistoryEntry[], entry: HistoryEntry) {
+  return [...history, cloneHistoryEntry(entry)].slice(-MAX_UNDO_STEPS)
+}
+
+function cloneElementSnapshot(element: SceneElement): SceneElement {
+  const cloned = JSON.parse(JSON.stringify(element)) as SceneElement
+  cloned.id = crypto.randomUUID()
+
+  if (cloned.type === 'parking') {
+    const params = cloned.params as ParkingParams
+    params.slots = params.slots.map((slot) => ({
+      ...slot,
+      id: crypto.randomUUID(),
+      children: slot.children.map((child) => ({
+        ...child,
+        id: crypto.randomUUID(),
+      })),
+    }))
+  }
+
+  return cloned
+}
+
+function getElementsCenter(elements: SceneElement[]) {
+  if (elements.length === 0) {
+    return { x: 0, y: 0 }
+  }
+
+  const bounds = elements
+    .map((element) => {
+      const size = getElementSceneSize(element)
+      const halfWidth = size.width / 2
+      const halfHeight = size.height / 2
+      const radians = (element.rotation * Math.PI) / 180
+      const cos = Math.cos(radians)
+      const sin = Math.sin(radians)
+      const corners = [
+        { x: -halfWidth, y: -halfHeight },
+        { x: halfWidth, y: -halfHeight },
+        { x: halfWidth, y: halfHeight },
+        { x: -halfWidth, y: halfHeight },
+      ].map((corner) => ({
+        x: element.x + corner.x * cos - corner.y * sin,
+        y: element.y + corner.x * sin + corner.y * cos,
+      }))
+
+      return {
+        minX: Math.min(...corners.map((corner) => corner.x)),
+        minY: Math.min(...corners.map((corner) => corner.y)),
+        maxX: Math.max(...corners.map((corner) => corner.x)),
+        maxY: Math.max(...corners.map((corner) => corner.y)),
+      }
+    })
+    .reduce(
+      (accumulator, next) => ({
+        minX: Math.min(accumulator.minX, next.minX),
+        minY: Math.min(accumulator.minY, next.minY),
+        maxX: Math.max(accumulator.maxX, next.maxX),
+        maxY: Math.max(accumulator.maxY, next.maxY),
+      }),
+      {
+        minX: Number.POSITIVE_INFINITY,
+        minY: Number.POSITIVE_INFINITY,
+        maxX: Number.NEGATIVE_INFINITY,
+        maxY: Number.NEGATIVE_INFINITY,
+      },
+    )
+
+  return {
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2,
+  }
 }
 
 function stampScene(scene: SceneDocument): SceneDocument {
@@ -66,6 +154,7 @@ interface EditorState {
   mode: SceneMode
   scene: SceneDocument | null
   scenes: SceneSummary[]
+  historyPast: HistoryEntry[]
   selectedId: string | null
   selectedIds: string[]
   activeTileBrush: TileType | null
@@ -84,7 +173,9 @@ interface EditorState {
   setSceneName: (name: string) => void
   addElement: (type: ElementType) => void
   addElementAt: (type: ElementType, x: number, y: number) => void
+  insertElementsAt: (elements: SceneElement[], targetCenterX: number, targetCenterY: number) => string[]
   moveElement: (id: string, x: number, y: number) => void
+  moveElementsBy: (ids: string[], deltaX: number, deltaY: number) => void
   deleteSelectedElement: () => void
   updateElementParams: (id: string, params: Partial<ElementParams>) => void
   updateElementRotation: (id: string, rotation: number) => void
@@ -95,6 +186,7 @@ interface EditorState {
   toggleTileBrush: (tileType: TileType) => void
   paintTile: (col: number, row: number) => void
   clearTile: (col: number, row: number) => void
+  undo: () => void
   saveDraft: () => Promise<void>
 }
 
@@ -103,6 +195,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   mode: '2d',
   scene: null,
   scenes: [],
+  historyPast: [],
   selectedId: null,
   selectedIds: [],
   activeTileBrush: null,
@@ -125,6 +218,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       appView: 'editor',
       mode: '2d',
       scene,
+      historyPast: [],
       selectedId: scene.elements[0]?.id ?? null,
       selectedIds: scene.elements[0]?.id ? [scene.elements[0].id] : [],
       activeTileBrush: null,
@@ -150,6 +244,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       mode: '2d',
       scene,
       scenes: await loadSceneSummaries(),
+      historyPast: [],
       selectedId: null,
       selectedIds: [],
       activeTileBrush: null,
@@ -181,6 +276,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       mode: '2d',
       scene,
       scenes: await loadSceneSummaries(),
+      historyPast: [],
       selectedId: scene.elements[0]?.id ?? null,
       selectedIds: scene.elements[0]?.id ? [scene.elements[0].id] : [],
       activeTileBrush: null,
@@ -207,6 +303,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       mode: '2d',
       scene: stamped,
       scenes: await loadSceneSummaries(),
+      historyPast: [],
       selectedId: stamped.elements[0]?.id ?? null,
       selectedIds: stamped.elements[0]?.id ? [stamped.elements[0].id] : [],
       activeTileBrush: null,
@@ -255,6 +352,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       appView: 'home',
       mode: '2d',
       scenes: await loadSceneSummaries(),
+      historyPast: [],
       selectedId: null,
       selectedIds: [],
       activeTileBrush: null,
@@ -264,6 +362,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setMode: (mode) => set({ mode }),
   setSceneName: (name) =>
     set((state) => ({
+      historyPast:
+        state.scene && state.scene.meta.name !== name
+          ? pushHistoryEntry(state.historyPast, {
+              scene: state.scene,
+              selectedIds: state.selectedIds,
+            })
+          : state.historyPast,
       scene: state.scene
         ? stampScene({
             ...state.scene,
@@ -289,6 +394,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         params: catalogItem.createDefaultParams(),
       }
       return {
+        historyPast: pushHistoryEntry(state.historyPast, {
+          scene: state.scene,
+          selectedIds: state.selectedIds,
+        }),
         selectedId: element.id,
         selectedIds: [element.id],
         activeTileBrush: null,
@@ -313,6 +422,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         params: catalogItem.createDefaultParams(),
       }
       return {
+        historyPast: pushHistoryEntry(state.historyPast, {
+          scene: state.scene,
+          selectedIds: state.selectedIds,
+        }),
         selectedId: element.id,
         selectedIds: [element.id],
         activeTileBrush: null,
@@ -322,13 +435,80 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         }),
       }
     }),
+  insertElementsAt: (elements, targetCenterX, targetCenterY) => {
+    let createdIds: string[] = []
+
+    set((state) => {
+      if (!state.scene || elements.length === 0) {
+        return state
+      }
+
+      const sourceCenter = getElementsCenter(elements)
+      const deltaX = targetCenterX - sourceCenter.x
+      const deltaY = targetCenterY - sourceCenter.y
+      const clones = elements.map((element) => {
+        const clone = cloneElementSnapshot(element)
+        return {
+          ...clone,
+          x: clone.x + deltaX,
+          y: clone.y + deltaY,
+        }
+      })
+      createdIds = clones.map((element) => element.id)
+
+      return {
+        historyPast: pushHistoryEntry(state.historyPast, {
+          scene: state.scene,
+          selectedIds: state.selectedIds,
+        }),
+        selectedId: createdIds[0] ?? null,
+        selectedIds: createdIds,
+        activeTileBrush: null,
+        scene: stampScene({
+          ...state.scene,
+          elements: [...state.scene.elements, ...clones],
+        }),
+      }
+    })
+
+    return createdIds
+  },
   moveElement: (id, x, y) =>
     set((state) => ({
+      historyPast: state.scene
+        ? pushHistoryEntry(state.historyPast, {
+            scene: state.scene,
+            selectedIds: state.selectedIds,
+          })
+        : state.historyPast,
       scene: state.scene
         ? stampScene({
             ...state.scene,
             elements: state.scene.elements.map((element) =>
               element.id === id ? { ...element, x, y } : element,
+            ),
+          })
+        : null,
+    })),
+  moveElementsBy: (ids, deltaX, deltaY) =>
+    set((state) => ({
+      historyPast: state.scene
+        ? pushHistoryEntry(state.historyPast, {
+            scene: state.scene,
+            selectedIds: state.selectedIds,
+          })
+        : state.historyPast,
+      scene: state.scene
+        ? stampScene({
+            ...state.scene,
+            elements: state.scene.elements.map((element) =>
+              ids.includes(element.id)
+                ? {
+                    ...element,
+                    x: element.x + deltaX,
+                    y: element.y + deltaY,
+                  }
+                : element,
             ),
           })
         : null,
@@ -339,6 +519,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         return state
       }
       return {
+        historyPast: pushHistoryEntry(state.historyPast, {
+          scene: state.scene,
+          selectedIds: state.selectedIds,
+        }),
         selectedId: null,
         selectedIds: [],
         scene: stampScene({
@@ -351,6 +535,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
   updateElementParams: (id, params) =>
     set((state) => ({
+      historyPast: state.scene
+        ? pushHistoryEntry(state.historyPast, {
+            scene: state.scene,
+            selectedIds: state.selectedIds,
+          })
+        : state.historyPast,
       scene: state.scene
         ? stampScene({
             ...state.scene,
@@ -376,6 +566,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })),
   updateElementRotation: (id, rotation) =>
     set((state) => ({
+      historyPast: state.scene
+        ? pushHistoryEntry(state.historyPast, {
+            scene: state.scene,
+            selectedIds: state.selectedIds,
+          })
+        : state.historyPast,
       scene: state.scene
         ? stampScene({
             ...state.scene,
@@ -442,6 +638,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           ]
 
       return {
+        historyPast: pushHistoryEntry(state.historyPast, {
+          scene: state.scene,
+          selectedIds: state.selectedIds,
+        }),
         scene: stampScene({
           ...state.scene,
           tiles: nextTiles,
@@ -450,6 +650,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
   clearTile: (col, row) =>
     set((state) => ({
+      historyPast: state.scene
+        ? pushHistoryEntry(state.historyPast, {
+            scene: state.scene,
+            selectedIds: state.selectedIds,
+          })
+        : state.historyPast,
       scene: state.scene
         ? stampScene({
             ...state.scene,
@@ -459,6 +665,27 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           })
         : null,
     })),
+  undo: () =>
+    set((state) => {
+      const previous = state.historyPast[state.historyPast.length - 1]
+      if (!previous) {
+        return state
+      }
+
+      const restoredScene = stampScene(cloneScene(previous.scene))
+      const validSelectedIds = previous.selectedIds.filter((id) =>
+        restoredScene.elements.some((element) => element.id === id),
+      )
+
+      return {
+        scene: restoredScene,
+        historyPast: state.historyPast.slice(0, -1),
+        selectedId: validSelectedIds[0] ?? null,
+        selectedIds: validSelectedIds,
+        activeTileBrush: null,
+        measureMode: false,
+      }
+    }),
   saveDraft: async () => {
     const scene = get().scene
     if (!scene) {

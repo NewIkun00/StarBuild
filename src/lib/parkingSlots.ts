@@ -38,6 +38,7 @@ export function normalizeParkingParams(params: ParkingParams): ParkingParams {
   return {
     ...params,
     count,
+    carportStyle: params.carportStyle ?? 'y',
     slots: syncParkingSlots(params.slots, count),
   }
 }

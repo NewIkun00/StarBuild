@@ -37,6 +37,7 @@ export interface ParkingParams {
   count: number
   slots: ParkingSlot[]
   canopyType: 'none' | 'pv' | 'film'
+  carportStyle?: 'y' | 'seven'
   parkingType: 'ordinary' | 'charging' | 'standard' | 'accessible'
 }
 
@@ -130,6 +131,7 @@ export function createTemplateScene(): SceneDocument {
             },
           ],
           canopyType: 'none',
+          carportStyle: 'y',
           parkingType: 'ordinary',
         },
       },
@@ -151,6 +153,7 @@ export function createTemplateScene(): SceneDocument {
             },
           ],
           canopyType: 'none',
+          carportStyle: 'y',
           parkingType: 'ordinary',
         },
       },
