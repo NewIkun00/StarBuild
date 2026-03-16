@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import type Konva from 'konva'
-import { FastLayer, Group, Layer, Line, Rect, Stage, Text } from 'react-konva'
+import Konva from 'konva'
+import chargerCanvasImageSrc from '../../assets/CDZSVG.svg'
+import { FastLayer, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import { getCatalogItem, getTileCatalogItem } from '../lib/catalog'
 import { normalizeParkingParams } from '../lib/parkingSlots'
 import { getElementMeterSize, getElementSceneSize } from '../lib/sceneGeometry'
@@ -9,7 +10,7 @@ import type { ElementType, ParkingParams } from '../types/scene'
 import { useEditorStore } from '../store/editorStore'
 
 const MIN_SCALE = 0.3
-const MAX_SCALE = 8
+const MAX_SCALE = 15
 const WHEEL_PAN_STEP = 64
 const ELEMENT_HOVER_OUTLINE = '#467AF7'
 const SELECTED_LABEL_GAP = 4
@@ -18,6 +19,8 @@ const SELECTED_LABEL_PADDING_Y = 8
 const SELECTED_LABEL_RADIUS = 4
 const SELECTED_LABEL_FONT_SIZE = 12
 const SELECTED_LABEL_LINE_HEIGHT = 1
+
+Konva.dragButtons = [0]
 
 type Viewport = {
   x: number
@@ -51,6 +54,20 @@ type MeasureDraft = {
   endY: number
 }
 
+type SelectionDraft = {
+  startX: number
+  startY: number
+  endX: number
+  endY: number
+}
+
+type Bounds = {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
 function readDraggedElementType(dataTransfer: DataTransfer | null): ElementType | null {
   if (!dataTransfer) {
     return null
@@ -70,6 +87,53 @@ function readDraggedElementType(dataTransfer: DataTransfer | null): ElementType 
   }
 }
 
+function useImageAsset(src: string) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null)
+
+  useEffect(() => {
+    const asset = new window.Image()
+    asset.decoding = 'async'
+    asset.src = src
+    asset.onload = () => setImage(asset)
+    asset.onerror = () => setImage(null)
+
+    return () => {
+      asset.onload = null
+      asset.onerror = null
+    }
+  }, [src])
+
+  return image
+}
+
+function getElementBounds(element: { x: number; y: number; rotation: number }, size: { width: number; height: number }): Bounds {
+  const halfWidth = size.width / 2
+  const halfHeight = size.height / 2
+  const radians = (element.rotation * Math.PI) / 180
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  const corners = [
+    { x: -halfWidth, y: -halfHeight },
+    { x: halfWidth, y: -halfHeight },
+    { x: halfWidth, y: halfHeight },
+    { x: -halfWidth, y: halfHeight },
+  ].map((corner) => ({
+    x: element.x + corner.x * cos - corner.y * sin,
+    y: element.y + corner.x * sin + corner.y * cos,
+  }))
+
+  return {
+    minX: Math.min(...corners.map((corner) => corner.x)),
+    minY: Math.min(...corners.map((corner) => corner.y)),
+    maxX: Math.max(...corners.map((corner) => corner.x)),
+    maxY: Math.max(...corners.map((corner) => corner.y)),
+  }
+}
+
+function doBoundsIntersect(a: Bounds, b: Bounds) {
+  return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY)
+}
+
 export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const scene = useEditorStore((state) => state.scene)
   const activeTileBrush = useEditorStore((state) => state.activeTileBrush)
@@ -78,6 +142,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const measureMode = useEditorStore((state) => state.measureMode)
   const moveElement = useEditorStore((state) => state.moveElement)
   const selectElement = useEditorStore((state) => state.selectElement)
+  const selectElements = useEditorStore((state) => state.selectElements)
   const addElementAt = useEditorStore((state) => state.addElementAt)
   const deleteSelectedElement = useEditorStore((state) => state.deleteSelectedElement)
   const paintTile = useEditorStore((state) => state.paintTile)
@@ -103,12 +168,14 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const panOriginRef = useRef<{ x: number; y: number } | null>(null)
   const initializedSceneRef = useRef<string | null>(null)
   const selectedIdRef = useRef<string | null>(useEditorStore.getState().selectedId)
+  const selectedIdsRef = useRef<string[]>(useEditorStore.getState().selectedIds)
   const hoveredIdRef = useRef<string | null>(null)
   const viewportRef = useRef<Viewport>({ x: 0, y: 0, scale: 1 })
   const pendingViewportRef = useRef<Viewport | null>(null)
   const frameRef = useRef<number | null>(null)
   const isPanningRef = useRef(false)
   const didPanRef = useRef(false)
+  const didSelectionRef = useRef(false)
   const frameStatsRef = useRef({ frames: 0, lastTime: performance.now(), fps: 0 })
   const perfRef = useRef<PerfSnapshot>({
     fps: 0,
@@ -128,10 +195,15 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null)
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 })
   const [measureDraft, setMeasureDraft] = useState<MeasureDraft | null>(null)
+  const [selectionDraft, setSelectionDraft] = useState<SelectionDraft | null>(null)
   const [zoomPercent, setZoomPercent] = useState(100)
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(
     useEditorStore.getState().selectedId,
   )
+  const [selectedOverlayIds, setSelectedOverlayIds] = useState<string[]>(
+    useEditorStore.getState().selectedIds,
+  )
+  const chargerCanvasImage = useImageAsset(chargerCanvasImageSrc)
 
   if (!scene) {
     return null
@@ -142,6 +214,24 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const viewport = viewportRef.current
   const selectedElement =
     currentScene.elements.find((element) => element.id === selectedOverlayId) ?? null
+  const selectedBounds =
+    selectedOverlayIds.length > 1
+      ? selectedOverlayIds
+          .map((id) => currentScene.elements.find((element) => element.id === id))
+          .filter((element): element is (typeof currentScene.elements)[number] => !!element)
+          .map((element) => getElementBounds(element, getElementSceneSize(element)))
+          .reduce<Bounds | null>((accumulator, bounds) => {
+            if (!accumulator) {
+              return bounds
+            }
+            return {
+              minX: Math.min(accumulator.minX, bounds.minX),
+              minY: Math.min(accumulator.minY, bounds.minY),
+              maxX: Math.max(accumulator.maxX, bounds.maxX),
+              maxY: Math.max(accumulator.maxY, bounds.maxY),
+            }
+          }, null)
+      : null
 
   function drawLayers() {
     tilesDisplayLayerRef.current?.batchDraw()
@@ -192,7 +282,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
 
     const item = getCatalogItem(element.type)
     const elementSize = getElementSceneSize(element)
-    const isSelected = selectedIdRef.current === id
+    const isSelected = selectedIdsRef.current.includes(id)
     const isHovered = hoveredIdRef.current === id
     const outlineStrokeWidth = isSelected ? 2 : isHovered ? 4 : 0
     const visualNodes =
@@ -222,6 +312,26 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
           offsetX: slotWidth / 2,
           offsetY: elementSize.height / 2,
         })
+      })
+      outlineNode?.setAttrs({
+        stroke: ELEMENT_HOVER_OUTLINE,
+        strokeWidth: outlineStrokeWidth,
+        width: elementSize.width,
+        height: elementSize.height,
+        offsetX: elementSize.width / 2,
+        offsetY: elementSize.height / 2,
+      })
+      elementsDisplayLayerRef.current?.batchDraw()
+      recordPerf('selectMs', performance.now() - start)
+      return
+    }
+
+    if (element.type === 'charger') {
+      visualNodes[0].setAttrs({
+        width: elementSize.width,
+        height: elementSize.height,
+        offsetX: elementSize.width / 2,
+        offsetY: elementSize.height / 2,
       })
       outlineNode?.setAttrs({
         stroke: ELEMENT_HOVER_OUTLINE,
@@ -364,6 +474,49 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     }
   }
 
+  function beginSelection() {
+    const point = getPointerWorldPosition()
+    if (!point) {
+      return
+    }
+
+    didSelectionRef.current = false
+    setSelectionDraft({
+      startX: point.x,
+      startY: point.y,
+      endX: point.x,
+      endY: point.y,
+    })
+  }
+
+  function finalizeSelection(selection: SelectionDraft) {
+    const normalizedSelection = {
+      minX: Math.min(selection.startX, selection.endX),
+      minY: Math.min(selection.startY, selection.endY),
+      maxX: Math.max(selection.startX, selection.endX),
+      maxY: Math.max(selection.startY, selection.endY),
+    }
+
+    const pickedIds = currentScene.elements
+      .filter((element) =>
+        doBoundsIntersect(
+          normalizedSelection,
+          getElementBounds(element, getElementSceneSize(element)),
+        ),
+      )
+      .map((element) => element.id)
+
+    didSelectionRef.current = true
+    perfRef.current.selectCount += 1
+    const start = performance.now()
+    if (pickedIds.length === 0) {
+      selectElement(null)
+    } else {
+      selectElements(pickedIds)
+    }
+    perfRef.current.selectMs = Number((performance.now() - start).toFixed(2))
+  }
+
   function updateDragPreview(clientX: number, clientY: number, type: ElementType) {
     const point = getWorldPositionFromClient(clientX, clientY)
     if (!point) {
@@ -482,15 +635,21 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   useEffect(() => {
     const unsubscribe = useEditorStore.subscribe((state, previousState) => {
       const start = performance.now()
-      if (state.selectedId === previousState.selectedId) {
+      const idsChanged =
+        state.selectedIds.length !== previousState.selectedIds.length ||
+        state.selectedIds.some((id, index) => id !== previousState.selectedIds[index])
+
+      if (!idsChanged && state.selectedId === previousState.selectedId) {
         perfRef.current.storeMs = Number((performance.now() - start).toFixed(2))
         return
       }
 
       selectedIdRef.current = state.selectedId
-      applyElementVisualState(previousState.selectedId)
-      applyElementVisualState(state.selectedId)
-      setSelectedOverlayId(state.selectedId)
+      selectedIdsRef.current = state.selectedIds
+      const idsToRefresh = new Set([...previousState.selectedIds, ...state.selectedIds])
+      idsToRefresh.forEach((id) => applyElementVisualState(id))
+      setSelectedOverlayIds(state.selectedIds)
+      setSelectedOverlayId(state.selectedIds.length === 1 ? state.selectedId : null)
       elementsDisplayLayerRef.current?.batchDraw()
       perfRef.current.storeMs = Number((performance.now() - start).toFixed(2))
       perfRef.current.storeCount += 1
@@ -605,6 +764,15 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       return
     }
 
+    if (
+      event.evt.button === 0 &&
+      !activeTileBrush &&
+      event.target.name() === 'canvas-hit-area'
+    ) {
+      beginSelection()
+      return
+    }
+
     if (event.evt.button !== 1) {
       return
     }
@@ -642,6 +810,23 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       return
     }
 
+    if (selectionDraft) {
+      const point = getPointerWorldPosition()
+      if (!point) {
+        return
+      }
+      setSelectionDraft((current) =>
+        current
+          ? {
+              ...current,
+              endX: point.x,
+              endY: point.y,
+            }
+          : current,
+      )
+      return
+    }
+
     if (!isPanningRef.current || !panStartRef.current || !panOriginRef.current) {
       return
     }
@@ -667,6 +852,12 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       return
     }
 
+    if (selectionDraft) {
+      finalizeSelection(selectionDraft)
+      setSelectionDraft(null)
+      return
+    }
+
     isPanningRef.current = false
     panStartRef.current = null
     panOriginRef.current = null
@@ -685,7 +876,12 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       return
     }
 
-    if (!activeTileBrush && selectedIdRef.current === null) {
+    if (didSelectionRef.current) {
+      didSelectionRef.current = false
+      return
+    }
+
+    if (!activeTileBrush && selectedIdsRef.current.length === 0) {
       return
     }
 
@@ -1019,6 +1215,28 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
             </Layer>
           )}
 
+          {selectionDraft && (
+            <Layer listening={false}>
+              <Group
+                scaleX={viewport.scale}
+                scaleY={viewport.scale}
+                x={viewport.x}
+                y={viewport.y}
+              >
+                <Rect
+                  fill="rgba(70, 122, 247, 0.3)"
+                  height={Math.abs(selectionDraft.endY - selectionDraft.startY)}
+                  stroke={ELEMENT_HOVER_OUTLINE}
+                  strokeScaleEnabled={false}
+                  strokeWidth={4}
+                  width={Math.abs(selectionDraft.endX - selectionDraft.startX)}
+                  x={Math.min(selectionDraft.startX, selectionDraft.endX)}
+                  y={Math.min(selectionDraft.startY, selectionDraft.endY)}
+                />
+              </Group>
+            </Layer>
+          )}
+
           <FastLayer ref={tilesDisplayLayerRef}>
             <Group
               ref={tilesDisplayGroupRef}
@@ -1064,7 +1282,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
               {currentScene.elements.map((element) => {
                 const item = getCatalogItem(element.type)
                 const elementSize = getElementSceneSize(element)
-                const isSelected = selectedIdRef.current === element.id
+                const isSelected = selectedIdsRef.current.includes(element.id)
                 if (element.type === 'parking') {
                   const parkingParams = normalizeParkingParams(element.params as ParkingParams)
                   const parkingCount = parkingParams.slots.length
@@ -1131,24 +1349,47 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                     rotation={element.rotation}
                     x={element.x}
                     y={element.y}
-                  >
-                    <Rect
-                      name="element-body"
-                      cornerRadius={14}
-                      fill={item.color}
-                      height={elementSize.height}
-                      offsetX={elementSize.width / 2}
-                      offsetY={elementSize.height / 2}
-                      opacity={0.9}
-                      perfectDrawEnabled={false}
-                      shadowForStrokeEnabled={false}
-                      shadowBlur={0}
-                      shadowColor={item.color}
-                      stroke="#ffffff"
-                      strokeScaleEnabled={false}
-                      strokeWidth={2}
-                      width={elementSize.width}
-                    />
+                    >
+                    {element.type === 'charger' && chargerCanvasImage ? (
+                      <>
+                        <KonvaImage
+                          height={elementSize.height}
+                          image={chargerCanvasImage}
+                          listening={false}
+                          offsetX={elementSize.width / 2}
+                          offsetY={elementSize.height / 2}
+                          width={elementSize.width}
+                        />
+                        <Rect
+                          name="element-body"
+                          fillEnabled={false}
+                          height={elementSize.height}
+                          listening={false}
+                          offsetX={elementSize.width / 2}
+                          offsetY={elementSize.height / 2}
+                          strokeEnabled={false}
+                          width={elementSize.width}
+                        />
+                      </>
+                    ) : (
+                      <Rect
+                        name="element-body"
+                        cornerRadius={14}
+                        fill={item.color}
+                        height={elementSize.height}
+                        offsetX={elementSize.width / 2}
+                        offsetY={elementSize.height / 2}
+                        opacity={0.9}
+                        perfectDrawEnabled={false}
+                        shadowForStrokeEnabled={false}
+                        shadowBlur={0}
+                        shadowColor={item.color}
+                        stroke="#ffffff"
+                        strokeScaleEnabled={false}
+                        strokeWidth={2}
+                        width={elementSize.width}
+                      />
+                    )}
                     <Rect
                       name="element-outline"
                       cornerRadius={0}
@@ -1167,6 +1408,28 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
               })}
             </Group>
           </Layer>
+
+          {selectedBounds && (
+            <Layer listening={false}>
+              <Group
+                scaleX={viewport.scale}
+                scaleY={viewport.scale}
+                x={viewport.x}
+                y={viewport.y}
+              >
+                <Rect
+                  fillEnabled={false}
+                  height={selectedBounds.maxY - selectedBounds.minY}
+                  stroke={ELEMENT_HOVER_OUTLINE}
+                  strokeScaleEnabled={false}
+                  strokeWidth={2}
+                  width={selectedBounds.maxX - selectedBounds.minX}
+                  x={selectedBounds.minX}
+                  y={selectedBounds.minY}
+                />
+              </Group>
+            </Layer>
+          )}
 
           <Layer>
             <Group
@@ -1223,13 +1486,41 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                       if (measureMode) {
                         return
                       }
-                      if (selectedIdRef.current !== element.id) {
+                      if (
+                        selectedIdsRef.current.length !== 1 ||
+                        selectedIdRef.current !== element.id
+                      ) {
                         selectElement(element.id)
                       }
                     }}
                     onMouseEnter={() => setHoveredElement(element.id)}
                     onMouseLeave={() => setHoveredElement(null)}
+                    onDragStart={(event) => {
+                      if (event.evt.button !== 0) {
+                        event.target.stopDrag()
+                        const displayNode = elementNodeMapRef.current[element.id]
+                        if (displayNode) {
+                          displayNode.position({
+                            x: element.x,
+                            y: element.y,
+                          })
+                        }
+                        elementsDisplayLayerRef.current?.batchDraw()
+                      }
+                    }}
                     onDragMove={(event) => {
+                      if (event.evt.button !== 0) {
+                        event.target.stopDrag()
+                        const displayNode = elementNodeMapRef.current[element.id]
+                        if (displayNode) {
+                          displayNode.position({
+                            x: element.x,
+                            y: element.y,
+                          })
+                        }
+                        elementsDisplayLayerRef.current?.batchDraw()
+                        return
+                      }
                       const displayNode = elementNodeMapRef.current[element.id]
                       if (!displayNode) {
                         return

@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import selectArrowIcon from '../../assets/XiaLaaa.png'
 import { getCatalogItem } from '../lib/catalog'
+import {
+  chargerModelOptions,
+  chargerTypeOptions,
+  normalizeChargerType,
+} from '../lib/chargerCatalog'
 import { normalizeParkingParams } from '../lib/parkingSlots'
 import { useEditorStore } from '../store/editorStore'
 import type {
@@ -13,28 +18,6 @@ import type {
 interface PropertiesPanelProps {
   element: SceneElement | null
 }
-
-const chargerModelOptions = {
-  ac: ['星跃', '弯月', '星迈', '星际', '极光', '启明星'],
-  integrated: [
-    '天权20kW',
-    '双子座2代30/40kW',
-    '双子座V3.2 60/80kW',
-    '双子座V3.2 120kW',
-    '双子座V3.2 160kW',
-    '双子座V3.2 180/240kW',
-    '金牛座4.2 240/320/360/400kW',
-  ],
-  split: ['星驰300/400A', '星海600A', '星海1200A'],
-  v2g: ['Halo双向充电桩7/11kW', '双子座3代30kW', '双子座3代Pro 120kW'],
-} satisfies Record<NonNullable<ChargerParams['chargerType']>, string[]>
-
-const chargerTypeOptions = [
-  { label: '交流桩', value: 'ac' },
-  { label: '一体桩', value: 'integrated' },
-  { label: '分体桩', value: 'split' },
-  { label: 'V2G', value: 'v2g' },
-] as const
 
 export function PropertiesPanel({ element }: PropertiesPanelProps) {
   const scene = useEditorStore((state) => state.scene)
@@ -289,21 +272,6 @@ function ChargerFields({
       />
     </>
   )
-}
-
-function normalizeChargerType(
-  chargerType: ChargerParams['chargerType'],
-  model: string,
-): NonNullable<ChargerParams['chargerType']> {
-  if (chargerType && chargerType in chargerModelOptions) {
-    return chargerType
-  }
-
-  const detected = (Object.entries(chargerModelOptions) as Array<
-    [NonNullable<ChargerParams['chargerType']>, string[]]
-  >).find(([, models]) => models.includes(model))
-
-  return detected?.[0] ?? 'integrated'
 }
 
 function StorageFields({

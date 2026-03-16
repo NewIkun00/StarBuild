@@ -67,6 +67,7 @@ interface EditorState {
   scene: SceneDocument | null
   scenes: SceneSummary[]
   selectedId: string | null
+  selectedIds: string[]
   activeTileBrush: TileType | null
   showGrid: boolean
   measureMode: boolean
@@ -88,6 +89,7 @@ interface EditorState {
   updateElementParams: (id: string, params: Partial<ElementParams>) => void
   updateElementRotation: (id: string, rotation: number) => void
   selectElement: (id: string | null) => void
+  selectElements: (ids: string[]) => void
   setShowGrid: (showGrid: boolean) => void
   setMeasureMode: (measureMode: boolean) => void
   toggleTileBrush: (tileType: TileType) => void
@@ -102,6 +104,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   scene: null,
   scenes: [],
   selectedId: null,
+  selectedIds: [],
   activeTileBrush: null,
   showGrid: true,
   measureMode: false,
@@ -123,6 +126,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       mode: '2d',
       scene,
       selectedId: scene.elements[0]?.id ?? null,
+      selectedIds: scene.elements[0]?.id ? [scene.elements[0].id] : [],
       activeTileBrush: null,
       measureMode: false,
     })
@@ -147,6 +151,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       scene,
       scenes: await loadSceneSummaries(),
       selectedId: null,
+      selectedIds: [],
       activeTileBrush: null,
       measureMode: false,
     })
@@ -177,6 +182,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       scene,
       scenes: await loadSceneSummaries(),
       selectedId: scene.elements[0]?.id ?? null,
+      selectedIds: scene.elements[0]?.id ? [scene.elements[0].id] : [],
       activeTileBrush: null,
       measureMode: false,
     })
@@ -202,6 +208,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       scene: stamped,
       scenes: await loadSceneSummaries(),
       selectedId: stamped.elements[0]?.id ?? null,
+      selectedIds: stamped.elements[0]?.id ? [stamped.elements[0].id] : [],
       activeTileBrush: null,
       measureMode: false,
     })
@@ -215,6 +222,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       appView: current?.meta.id === id ? 'home' : get().appView,
       scene: current?.meta.id === id ? null : current,
       selectedId: current?.meta.id === id ? null : get().selectedId,
+      selectedIds: current?.meta.id === id ? [] : get().selectedIds,
     })
   },
   renameScene: async (id, name) => {
@@ -248,6 +256,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       mode: '2d',
       scenes: await loadSceneSummaries(),
       selectedId: null,
+      selectedIds: [],
       activeTileBrush: null,
       measureMode: false,
     })
@@ -281,6 +290,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       return {
         selectedId: element.id,
+        selectedIds: [element.id],
         activeTileBrush: null,
         scene: stampScene({
           ...state.scene,
@@ -304,6 +314,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       return {
         selectedId: element.id,
+        selectedIds: [element.id],
         activeTileBrush: null,
         scene: stampScene({
           ...state.scene,
@@ -324,14 +335,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })),
   deleteSelectedElement: () =>
     set((state) => {
-      if (!state.scene || !state.selectedId) {
+      if (!state.scene || state.selectedIds.length === 0) {
         return state
       }
       return {
         selectedId: null,
+        selectedIds: [],
         scene: stampScene({
           ...state.scene,
-          elements: state.scene.elements.filter((element) => element.id !== state.selectedId),
+          elements: state.scene.elements.filter(
+            (element) => !state.selectedIds.includes(element.id),
+          ),
         }),
       }
     }),
@@ -376,8 +390,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (state.selectedId === id && state.activeTileBrush === null) {
         return state
       }
-      return { selectedId: id, activeTileBrush: null, measureMode: false }
+      return {
+        selectedId: id,
+        selectedIds: id ? [id] : [],
+        activeTileBrush: null,
+        measureMode: false,
+      }
     }),
+  selectElements: (ids) =>
+    set(() => ({
+      selectedId: ids[0] ?? null,
+      selectedIds: ids,
+      activeTileBrush: null,
+      measureMode: false,
+    })),
   setShowGrid: (showGrid) => set({ showGrid }),
   setMeasureMode: (measureMode) =>
     set((state) => ({
@@ -387,6 +413,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   toggleTileBrush: (tileType) =>
     set((state) => ({
       selectedId: null,
+      selectedIds: [],
       activeTileBrush: state.activeTileBrush === tileType ? null : tileType,
       measureMode: false,
     })),

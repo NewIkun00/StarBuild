@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import chargerPreviewImage from '../../assets/CDZ555.png'
 import collapseArrow from '../../assets/XiaLaaa.png'
 import parkingPreviewImage from '../../assets/TYxiaochechewei.png'
 import previewTileImage from '../../assets/Tuyuan99.png'
@@ -134,10 +135,14 @@ export function CatalogSidebar({ catalog }: CatalogSidebarProps) {
                       className="catalog-tile-preview"
                       style={{ ['--catalog-tile-image' as string]: `url(${previewTileImage})` }}
                     >
-                      <span
-                        className="catalog-tile-chip"
-                        style={{ background: item.color }}
-                      />
+                      {item.type === 'charger' ? (
+                        <img alt="" className="catalog-tile-icon" src={chargerPreviewImage} />
+                      ) : (
+                        <span
+                          className="catalog-tile-chip"
+                          style={{ background: item.color }}
+                        />
+                      )}
                     </span>
                     <span className="catalog-tile-label">{item.title}</span>
                   </button>

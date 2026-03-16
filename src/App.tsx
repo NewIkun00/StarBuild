@@ -24,11 +24,15 @@ function App() {
   const appView = useEditorStore((state) => state.appView)
   const mode = useEditorStore((state) => state.mode)
   const selectedId = useEditorStore((state) => state.selectedId)
+  const selectedIds = useEditorStore((state) => state.selectedIds)
   const scene = useEditorStore((state) => state.scene)
   const initialize = useEditorStore((state) => state.initialize)
   const selectedElement = useMemo(
-    () => scene?.elements.find((item) => item.id === selectedId) ?? null,
-    [scene, selectedId],
+    () =>
+      selectedIds.length === 1
+        ? scene?.elements.find((item) => item.id === selectedId) ?? null
+        : null,
+    [scene, selectedId, selectedIds],
   )
   const [status, setStatus] = useState('正在初始化...')
 

@@ -26,7 +26,7 @@ function formatSavedTime(value: string) {
 export function SceneToolbar({ onStatusChange }: SceneToolbarProps) {
   const mode = useEditorStore((state) => state.mode)
   const scene = useEditorStore((state) => state.scene)
-  const selectedId = useEditorStore((state) => state.selectedId)
+  const selectedIds = useEditorStore((state) => state.selectedIds)
   const showGrid = useEditorStore((state) => state.showGrid)
   const measureMode = useEditorStore((state) => state.measureMode)
   const setMode = useEditorStore((state) => state.setMode)
@@ -47,7 +47,7 @@ export function SceneToolbar({ onStatusChange }: SceneToolbarProps) {
   }
 
   function handleDeleteElement() {
-    if (!selectedId) {
+    if (selectedIds.length === 0) {
       return
     }
     deleteSelectedElement()
@@ -79,7 +79,7 @@ export function SceneToolbar({ onStatusChange }: SceneToolbarProps) {
             <span className="toolbar-tool" data-tooltip="删除">
               <button
                 className="toolbar-tool-button"
-                disabled={!selectedId}
+                disabled={selectedIds.length === 0}
                 type="button"
                 onClick={handleDeleteElement}
               >
