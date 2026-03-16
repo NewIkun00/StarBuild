@@ -48,17 +48,10 @@ function App() {
 
   return (
     <div className="app-shell">
-      <SceneToolbar status={status} onStatusChange={setStatus} />
+      <SceneToolbar onStatusChange={setStatus} />
       <main className="workspace">
         <CatalogSidebar catalog={sceneCatalog} />
         <section className="stage-panel">
-          <header className="panel-heading">
-            <div>
-              <p className="eyebrow">StarBuild Editor</p>
-              <h1>{scene.meta.name}</h1>
-            </div>
-            <div className="mode-badge">{mode === '2d' ? '2D 编辑中' : '3D 预览中'}</div>
-          </header>
           <Suspense
             fallback={<div className="canvas-loading">正在加载编辑器模块...</div>}
           >

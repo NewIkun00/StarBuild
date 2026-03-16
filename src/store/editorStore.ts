@@ -1,11 +1,13 @@
 import { create } from 'zustand'
 import { editorDb } from '../lib/db'
 import { getCatalogItem } from '../lib/catalog'
+import { normalizeParkingParams, normalizeSceneDocument } from '../lib/parkingSlots'
 import {
   createDefaultScene,
   createTemplateScene,
   type ElementParams,
   type ElementType,
+  type ParkingParams,
   type SceneDocument,
   type SceneElement,
   type SceneMode,
@@ -66,11 +68,13 @@ interface EditorState {
   scenes: SceneSummary[]
   selectedId: string | null
   activeTileBrush: TileType | null
+  showGrid: boolean
+  measureMode: boolean
   templates: SceneTemplate[]
   initialize: () => Promise<string>
   openScene: (id: string) => Promise<void>
-  createEmptyScene: () => Promise<void>
-  createSceneFromTemplate: (templateId: string) => Promise<void>
+  createEmptyScene: (name?: string) => Promise<void>
+  createSceneFromTemplate: (templateId: string, name?: string) => Promise<void>
   importSceneToLibrary: (scene: SceneDocument) => Promise<void>
   deleteScene: (id: string) => Promise<void>
   renameScene: (id: string, name: string) => Promise<void>
@@ -78,10 +82,14 @@ interface EditorState {
   setMode: (mode: SceneMode) => void
   setSceneName: (name: string) => void
   addElement: (type: ElementType) => void
+  addElementAt: (type: ElementType, x: number, y: number) => void
   moveElement: (id: string, x: number, y: number) => void
+  deleteSelectedElement: () => void
   updateElementParams: (id: string, params: Partial<ElementParams>) => void
   updateElementRotation: (id: string, rotation: number) => void
   selectElement: (id: string | null) => void
+  setShowGrid: (showGrid: boolean) => void
+  setMeasureMode: (measureMode: boolean) => void
   toggleTileBrush: (tileType: TileType) => void
   paintTile: (col: number, row: number) => void
   clearTile: (col: number, row: number) => void
@@ -95,6 +103,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   scenes: [],
   selectedId: null,
   activeTileBrush: null,
+  showGrid: true,
+  measureMode: false,
   templates: sceneTemplates,
   initialize: async () => {
     const scenes = await loadSceneSummaries()
@@ -107,16 +117,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({ scenes: await loadSceneSummaries() })
       return
     }
+    const scene = normalizeSceneDocument(record.scene)
     set({
       appView: 'editor',
       mode: '2d',
-      scene: record.scene,
-      selectedId: record.scene.elements[0]?.id ?? null,
+      scene,
+      selectedId: scene.elements[0]?.id ?? null,
       activeTileBrush: null,
+      measureMode: false,
     })
   },
-  createEmptyScene: async () => {
-    const scene = stampScene(createDefaultScene())
+  createEmptyScene: async (name) => {
+    const baseScene = createDefaultScene()
+    const scene = stampScene({
+      ...baseScene,
+      meta: {
+        ...baseScene.meta,
+        name: name?.trim() || '新建站点方案',
+      },
+    })
     await editorDb.scenes.put({
       id: scene.meta.id,
       scene,
@@ -129,19 +148,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       scenes: await loadSceneSummaries(),
       selectedId: null,
       activeTileBrush: null,
+      measureMode: false,
     })
   },
-  createSceneFromTemplate: async (templateId) => {
+  createSceneFromTemplate: async (templateId, name) => {
     const template = get().templates.find((item) => item.id === templateId)
     if (!template) {
       return
     }
+    const templateScene = cloneScene(template.scene)
     const scene = stampScene({
-      ...cloneScene(template.scene),
+      ...templateScene,
       meta: {
-        ...cloneScene(template.scene).meta,
+        ...templateScene.meta,
         id: crypto.randomUUID(),
-        name: `${template.name}-${new Date().toLocaleDateString('zh-CN')}`,
+        name:
+          name?.trim() || `${template.name}-${new Date().toLocaleDateString('zh-CN')}`,
       },
     })
     await editorDb.scenes.put({
@@ -156,11 +178,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       scenes: await loadSceneSummaries(),
       selectedId: scene.elements[0]?.id ?? null,
       activeTileBrush: null,
+      measureMode: false,
     })
   },
   importSceneToLibrary: async (scene) => {
+    const normalizedScene = normalizeSceneDocument(cloneScene(scene))
     const stamped = stampScene({
-      ...cloneScene(scene),
+      ...normalizedScene,
       meta: {
         ...scene.meta,
         id: scene.meta.id || crypto.randomUUID(),
@@ -179,6 +203,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       scenes: await loadSceneSummaries(),
       selectedId: stamped.elements[0]?.id ?? null,
       activeTileBrush: null,
+      measureMode: false,
     })
   },
   deleteScene: async (id) => {
@@ -224,6 +249,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       scenes: await loadSceneSummaries(),
       selectedId: null,
       activeTileBrush: null,
+      measureMode: false,
     })
   },
   setMode: (mode) => set({ mode }),
@@ -239,6 +265,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           })
         : null,
     })),
+  addElementAt: (type, x, y) =>
+    set((state) => {
+      if (!state.scene) {
+        return state
+      }
+      const catalogItem = getCatalogItem(type)
+      const element: SceneElement = {
+        id: crypto.randomUUID(),
+        type,
+        x,
+        y,
+        rotation: 0,
+        params: catalogItem.createDefaultParams(),
+      }
+      return {
+        selectedId: element.id,
+        activeTileBrush: null,
+        scene: stampScene({
+          ...state.scene,
+          elements: [...state.scene.elements, element],
+        }),
+      }
+    }),
   addElement: (type) =>
     set((state) => {
       if (!state.scene) {
@@ -273,6 +322,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           })
         : null,
     })),
+  deleteSelectedElement: () =>
+    set((state) => {
+      if (!state.scene || !state.selectedId) {
+        return state
+      }
+      return {
+        selectedId: null,
+        scene: stampScene({
+          ...state.scene,
+          elements: state.scene.elements.filter((element) => element.id !== state.selectedId),
+        }),
+      }
+    }),
   updateElementParams: (id, params) =>
     set((state) => ({
       scene: state.scene
@@ -282,10 +344,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
               element.id === id
                 ? {
                     ...element,
-                    params: {
-                      ...element.params,
-                      ...params,
-                    },
+                    params:
+                      element.type === 'parking'
+                        ? normalizeParkingParams({
+                            ...(element.params as ParkingParams),
+                            ...params,
+                          })
+                        : {
+                            ...element.params,
+                            ...params,
+                          },
                   }
                 : element,
             ),
@@ -303,11 +371,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           })
         : null,
     })),
-  selectElement: (id) => set({ selectedId: id, activeTileBrush: null }),
+  selectElement: (id) =>
+    set((state) => {
+      if (state.selectedId === id && state.activeTileBrush === null) {
+        return state
+      }
+      return { selectedId: id, activeTileBrush: null, measureMode: false }
+    }),
+  setShowGrid: (showGrid) => set({ showGrid }),
+  setMeasureMode: (measureMode) =>
+    set((state) => ({
+      measureMode,
+      activeTileBrush: measureMode ? null : state.activeTileBrush,
+    })),
   toggleTileBrush: (tileType) =>
     set((state) => ({
       selectedId: null,
       activeTileBrush: state.activeTileBrush === tileType ? null : tileType,
+      measureMode: false,
     })),
   paintTile: (col, row) =>
     set((state) => {

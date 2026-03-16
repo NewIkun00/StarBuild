@@ -1,78 +1,153 @@
-import type { ChangeEvent } from 'react'
-import { downloadScene, readSceneFile } from '../lib/file'
+import measureIcon from '../../assets/CeJu.png'
+import deleteElementIcon from '../../assets/Shanccchu.png'
+import saveStatusIcon from '../../assets/DuiGou.png'
+import backHomeIcon from '../../assets/FanHuiShouYe.png'
+import logoImage from '../../assets/Logo.png'
+import hideGridIcon from '../../assets/YinCangGrid.png'
+import showGridIcon from '../../assets/Xianshigrid.png'
+import saveSceneIcon from '../../assets/XiaZai999.png'
+import { downloadScene } from '../lib/file'
 import { useEditorStore } from '../store/editorStore'
 
 interface SceneToolbarProps {
-  status: string
   onStatusChange: (message: string) => void
 }
 
-export function SceneToolbar({
-  status,
-  onStatusChange,
-}: SceneToolbarProps) {
+function formatSavedTime(value: string) {
+  const date = new Date(value)
+  const year = date.getFullYear()
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}年${month}月${day}日 ${hours}:${minutes}`
+}
+
+export function SceneToolbar({ onStatusChange }: SceneToolbarProps) {
   const mode = useEditorStore((state) => state.mode)
   const scene = useEditorStore((state) => state.scene)
+  const selectedId = useEditorStore((state) => state.selectedId)
+  const showGrid = useEditorStore((state) => state.showGrid)
+  const measureMode = useEditorStore((state) => state.measureMode)
   const setMode = useEditorStore((state) => state.setMode)
-  const saveDraft = useEditorStore((state) => state.saveDraft)
   const returnHome = useEditorStore((state) => state.returnHome)
+  const deleteSelectedElement = useEditorStore((state) => state.deleteSelectedElement)
+  const setShowGrid = useEditorStore((state) => state.setShowGrid)
+  const setMeasureMode = useEditorStore((state) => state.setMeasureMode)
 
-  async function handleImport(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) {
-      return
-    }
-
-    try {
-      const imported = await readSceneFile(file)
-      const importSceneToLibrary = useEditorStore.getState().importSceneToLibrary
-      await importSceneToLibrary(imported)
-      onStatusChange(`已导入 ${file.name}`)
-    } catch (error) {
-      onStatusChange(error instanceof Error ? error.message : '导入失败')
-    } finally {
-      event.target.value = ''
-    }
+  if (!scene) {
+    return null
   }
 
-  async function handleSaveDraft() {
-    await saveDraft()
-    onStatusChange('草稿已保存到本机 IndexedDB')
+  const currentScene = scene
+
+  function handleSaveScene() {
+    downloadScene(currentScene)
+    onStatusChange(`已下载 ${currentScene.meta.name}`)
+  }
+
+  function handleDeleteElement() {
+    if (!selectedId) {
+      return
+    }
+    deleteSelectedElement()
+    onStatusChange('已删除选中组件')
   }
 
   return (
     <header className="toolbar">
-      <div className="toolbar-brand">
-        <div>
-          <h2>新能源站点场景编辑器</h2>
-          <p>2D 编排、JSON 存档、本地草稿恢复、ThreeJS 预览入口</p>
+      <div className="toolbar-left">
+        <div className="brand-lockup toolbar-logo-lockup">
+          <img alt="星搭 Logo" className="brand-logo" src={logoImage} />
+          <div className="brand-wordmark">星 搭</div>
         </div>
-        <span className="toolbar-status">{status}</span>
+        <button className="toolbar-home" type="button" onClick={() => void returnHome()}>
+          <img alt="" className="toolbar-home-icon" src={backHomeIcon} />
+          <span>返回首页</span>
+        </button>
+        <span aria-hidden="true" className="toolbar-divider" />
+        <div className="toolbar-scene-name">{currentScene.meta.name}</div>
+        <div className="toolbar-save-status">
+          <img alt="" className="toolbar-save-status-icon" src={saveStatusIcon} />
+          <span>修改已保存 {formatSavedTime(currentScene.meta.updatedAt)}</span>
+        </div>
       </div>
 
-      <div className="toolbar-actions">
-        <button type="button" onClick={() => void returnHome()}>
-          返回首页
-        </button>
-        <button type="button" onClick={handleSaveDraft}>
-          立即缓存
-        </button>
-        <button type="button" onClick={() => scene && downloadScene(scene)}>
-          导出 JSON
-        </button>
-        <label className="button-like">
-          导入 JSON
-          <input accept="application/json,.json" type="file" onChange={handleImport} />
-        </label>
-        <button
-          className="mode-button"
-          type="button"
-          onClick={() => setMode(mode === '2d' ? '3d' : '2d')}
-        >
-          切换到 {mode === '2d' ? '3D 预览' : '2D 编辑'}
-        </button>
-        <button className="primary" type="button" onClick={() => setMode('3d')}>
-          进入 ThreeJS 预览
+      {mode === '2d' && (
+        <div className="toolbar-center">
+          <div className="toolbar-tools" aria-label="2D功能区">
+            <span className="toolbar-tool" data-tooltip="删除">
+              <button
+                className="toolbar-tool-button"
+                disabled={!selectedId}
+                type="button"
+                onClick={handleDeleteElement}
+              >
+                <img alt="" className="toolbar-tool-icon" src={deleteElementIcon} />
+              </button>
+            </span>
+            <span className="toolbar-tool" data-tooltip="显示网格">
+              <button
+                className="toolbar-tool-button"
+                disabled={showGrid}
+                type="button"
+                onClick={() => setShowGrid(true)}
+              >
+                <img alt="" className="toolbar-tool-icon" src={showGridIcon} />
+              </button>
+            </span>
+            <span className="toolbar-tool" data-tooltip="隐藏网格">
+              <button
+                className="toolbar-tool-button"
+                disabled={!showGrid}
+                type="button"
+                onClick={() => setShowGrid(false)}
+              >
+                <img alt="" className="toolbar-tool-icon" src={hideGridIcon} />
+              </button>
+            </span>
+            <span className="toolbar-tool" data-tooltip="测距">
+              <button
+                className={`toolbar-tool-button ${measureMode ? 'is-active' : ''}`}
+                type="button"
+                onClick={() => setMeasureMode(!measureMode)}
+              >
+                <img alt="" className="toolbar-tool-icon" src={measureIcon} />
+                {measureMode && <span aria-hidden="true" className="toolbar-tool-indicator" />}
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="toolbar-right">
+        <div className="mode-switch" role="tablist" aria-label="视图模式切换">
+          <button
+            className={`mode-switch-label ${mode === '2d' ? 'is-active' : ''}`}
+            type="button"
+            onClick={() => setMode('2d')}
+          >
+            2D模式
+          </button>
+          <button
+            className={`mode-switch-track ${mode === '3d' ? 'is-3d' : ''}`}
+            type="button"
+            aria-label={mode === '2d' ? '切换到3D模式' : '切换到2D模式'}
+            onClick={() => setMode(mode === '2d' ? '3d' : '2d')}
+          >
+            <span className="mode-switch-thumb" />
+          </button>
+          <button
+            className={`mode-switch-label ${mode === '3d' ? 'is-active' : ''}`}
+            type="button"
+            onClick={() => setMode('3d')}
+          >
+            3D模式
+          </button>
+        </div>
+        <button className="toolbar-save-button" type="button" onClick={handleSaveScene}>
+          <img alt="" className="toolbar-save-button-icon" src={saveSceneIcon} />
+          <span>保存场景</span>
         </button>
       </div>
     </header>

@@ -6,6 +6,8 @@ import type {
   StorageParams,
   TileType,
 } from '../types/scene'
+import { createParkingSlots } from './parkingSlots'
+import { metersToSceneUnits } from './units'
 
 export interface CatalogItem {
   type: ElementType
@@ -30,12 +32,16 @@ export const sceneCatalog: CatalogItem[] = [
     type: 'parking',
     title: '车位',
     description: '支持车棚、车位类型和样式切换。',
-    color: '#38bdf8',
-    size: { width: 120, height: 60 },
+    color: '#434343',
+    // Real-world size: 2.5m x 5.5m.
+    size: { width: metersToSceneUnits(2.5), height: metersToSceneUnits(5.5) },
     createDefaultParams: (): ParkingParams => ({
-      hasPvCanopy: true,
-      canopyStyle: 'flat',
-      parkingType: 'standard',
+      widthM: 2.5,
+      lengthM: 5.5,
+      count: 1,
+      slots: createParkingSlots(1),
+      canopyType: 'none',
+      parkingType: 'ordinary',
     }),
   },
   {
@@ -45,7 +51,8 @@ export const sceneCatalog: CatalogItem[] = [
     color: '#fb7185',
     size: { width: 52, height: 52 },
     createDefaultParams: (): ChargerParams => ({
-      model: 'charger_120kw',
+      chargerType: 'integrated',
+      model: '双子座V3.2 120kW',
     }),
   },
   {
