@@ -388,25 +388,27 @@ export function ThreePreview() {
 
     sceneData.tiles.forEach((tile) => {
       const tileInfo = getTileCatalogItem(tile.tileType)
+      const isGreenTile = tileInfo.category === 'green'
+      const isWaterTile = tileInfo.category === 'water'
       const material = new THREE.MeshStandardMaterial({
         color: tileInfo.color,
-        roughness: tile.tileType === 'green' ? 1 : 0.92,
-        metalness: 0.01,
-        envMapIntensity: tile.tileType === 'green' ? 0.08 : 0.18,
+        roughness: isGreenTile ? 1 : isWaterTile ? 0.1 : 0.92,
+        metalness: isWaterTile ? 0.18 : 0.01,
+        envMapIntensity: isGreenTile ? 0.08 : isWaterTile ? 0.65 : 0.18,
       })
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(
           sceneData.canvas.gridSize,
-          tile.tileType === 'green' ? 5 : 2,
+          isGreenTile ? 5 : isWaterTile ? 1 : 2,
           sceneData.canvas.gridSize,
         ),
         material,
       )
       mesh.receiveShadow = true
-      mesh.castShadow = tile.tileType === 'green'
+      mesh.castShadow = isGreenTile
       mesh.position.set(
         tile.col * sceneData.canvas.gridSize + sceneData.canvas.gridSize / 2,
-        tile.tileType === 'green' ? 2.5 : 1,
+        isGreenTile ? 2.5 : isWaterTile ? 0.5 : 1,
         tile.row * sceneData.canvas.gridSize + sceneData.canvas.gridSize / 2,
       )
       scene.add(mesh)

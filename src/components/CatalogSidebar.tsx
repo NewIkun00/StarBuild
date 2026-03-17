@@ -4,26 +4,23 @@ import collapseArrow from '../../assets/XiaLaaa.png'
 import parkingPreviewImage from '../../assets/TYxiaochechewei.png'
 import storagePreviewImage from '../../assets/SBchunenggui.png'
 import previewTileImage from '../../assets/Tuyuan99.png'
-import { tileCatalog, type CatalogItem } from '../lib/catalog'
-import { useEditorStore } from '../store/editorStore'
+import type { CatalogItem } from '../lib/catalog'
 
 interface CatalogSidebarProps {
   catalog: CatalogItem[]
 }
 
 export function CatalogSidebar({ catalog }: CatalogSidebarProps) {
-  const activeTileBrush = useEditorStore((state) => state.activeTileBrush)
-  const toggleTileBrush = useEditorStore((state) => state.toggleTileBrush)
   const isDraggingRef = useRef(false)
-  const [openSection, setOpenSection] = useState<
-    'parking' | 'equipment' | 'business' | 'ground' | null
-  >('parking')
+  const [openSection, setOpenSection] = useState<'parking' | 'equipment' | 'business' | null>(
+    'parking',
+  )
   const transparentDragImageRef = useRef<HTMLImageElement | null>(null)
 
   const parkingItems = catalog.filter((item) => item.type === 'parking')
   const equipmentItems = catalog.filter((item) => item.type !== 'parking')
 
-  function toggleSection(section: 'parking' | 'equipment' | 'business' | 'ground') {
+  function toggleSection(section: 'parking' | 'equipment' | 'business') {
     setOpenSection((current) => (current === section ? null : section))
   }
 
@@ -144,12 +141,7 @@ export function CatalogSidebar({ catalog }: CatalogSidebarProps) {
                         <img alt="" className="catalog-tile-icon" src={chargerPreviewImage} />
                       ) : item.type === 'storage' ? (
                         <img alt="" className="catalog-tile-icon" src={storagePreviewImage} />
-                      ) : (
-                        <span
-                          className="catalog-tile-chip"
-                          style={{ background: item.color }}
-                        />
-                      )}
+                      ) : null}
                     </span>
                     <span className="catalog-tile-label">{item.title}</span>
                   </button>
@@ -169,45 +161,7 @@ export function CatalogSidebar({ catalog }: CatalogSidebarProps) {
             />
           </button>
           {openSection === 'business' && (
-            <div className="sidebar-section-body sidebar-empty">
-              暂无可用业务元素
-            </div>
-          )}
-        </section>
-
-        <section className="sidebar-section">
-          <button className="sidebar-section-header" type="button" onClick={() => toggleSection('ground')}>
-            <span>地面环境信息</span>
-            <img
-              alt=""
-              className={`sidebar-section-arrow ${openSection === 'ground' ? 'is-open' : ''}`}
-              src={collapseArrow}
-            />
-          </button>
-          {openSection === 'ground' && (
-            <div className="sidebar-section-body">
-              <div className="catalog-grid">
-                {tileCatalog.map((tile) => (
-                  <button
-                    key={tile.type}
-                    className={`catalog-tile ${activeTileBrush === tile.type ? 'is-active' : ''}`}
-                    type="button"
-                    onClick={() => toggleTileBrush(tile.type)}
-                  >
-                    <span
-                      className="catalog-tile-preview"
-                      style={{ ['--catalog-tile-image' as string]: `url(${previewTileImage})` }}
-                    >
-                      <span
-                        className="catalog-tile-chip"
-                        style={{ background: tile.color }}
-                      />
-                    </span>
-                    <span className="catalog-tile-label">{tile.title}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <div className="sidebar-section-body sidebar-empty">暂未开放其他业务元素</div>
           )}
         </section>
       </div>

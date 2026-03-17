@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { CatalogSidebar } from './components/CatalogSidebar'
+import { GroundSidebar } from './components/GroundSidebar'
 import { HomePage } from './components/HomePage'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { SceneToolbar } from './components/SceneToolbar'
@@ -54,7 +55,10 @@ function App() {
     <div className="app-shell">
       <SceneToolbar onStatusChange={setStatus} />
       <main className="workspace">
-        <CatalogSidebar catalog={sceneCatalog} />
+        <div className="left-panels">
+          <CatalogSidebar catalog={sceneCatalog} />
+          <GroundSidebar />
+        </div>
         <section className="stage-panel">
           <Suspense
             fallback={<div className="canvas-loading">正在加载编辑器模块...</div>}

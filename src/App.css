@@ -1,7 +1,9 @@
 .app-shell {
+  height: 100vh;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   color: #fff;
   background:
     linear-gradient(90deg, #1e1f23 0%, #111216 42%, #0d0f13 100%),
@@ -783,6 +785,16 @@
   gap: 0;
   padding: 0;
   min-height: 0;
+  overflow: hidden;
+}
+
+.left-panels {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 6fr) minmax(0, 4fr);
+  overflow: hidden;
+  background: #1e1e1e;
+  border-right: 1px solid rgba(216, 216, 216, 0.3);
 }
 
 .sidebar,
@@ -798,12 +810,18 @@
 .sidebar,
 .properties {
   padding: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .sidebar {
+  display: flex;
+  flex-direction: column;
   background: #1e1e1e;
-  border-right: 1px solid rgba(216, 216, 216, 0.3);
+  border-right: 0;
+}
+
+.left-panels .sidebar + .sidebar {
+  border-top: 1px solid rgba(216, 216, 216, 0.3);
 }
 
 .properties {
@@ -865,13 +883,83 @@
 }
 
 .sidebar-sections {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
   background: #262626;
 }
 
 .properties-body {
+  flex: 1;
   min-height: calc(100% - 36px);
+  overflow: auto;
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
   background: #262626;
   padding-bottom: 16px;
+}
+
+.sidebar-sections::-webkit-scrollbar,
+.properties-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.sidebar-sections::-webkit-scrollbar-track,
+.properties-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-sections::-webkit-scrollbar-thumb,
+.properties-body::-webkit-scrollbar-thumb {
+  border: 2px solid rgba(0, 0, 0, 0);
+  border-radius: 999px;
+  background: transparent;
+  background-clip: padding-box;
+}
+
+.sidebar-sections:hover,
+.sidebar-sections:focus-within,
+.properties-body:hover,
+.properties-body:focus-within {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) rgba(0, 0, 0, 0.18);
+}
+
+.sidebar-sections:hover::-webkit-scrollbar,
+.sidebar-sections:focus-within::-webkit-scrollbar,
+.properties-body:hover::-webkit-scrollbar,
+.properties-body:focus-within::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.sidebar-sections:hover::-webkit-scrollbar-track,
+.sidebar-sections:focus-within::-webkit-scrollbar-track,
+.properties-body:hover::-webkit-scrollbar-track,
+.properties-body:focus-within::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.sidebar-sections:hover::-webkit-scrollbar-thumb,
+.sidebar-sections:focus-within::-webkit-scrollbar-thumb,
+.properties-body:hover::-webkit-scrollbar-thumb,
+.properties-body:focus-within::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  background-clip: padding-box;
+}
+
+.sidebar-sections::-webkit-scrollbar-thumb:hover,
+.properties-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+  background-clip: padding-box;
+}
+
+.properties {
+  display: flex;
+  flex-direction: column;
 }
 
 .properties-section {

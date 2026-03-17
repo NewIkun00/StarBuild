@@ -1,7 +1,7 @@
 export type SceneMode = '2d' | '3d'
 
 export type ElementType = 'parking' | 'charger' | 'storage'
-export type TileType = 'road' | 'road_zebra' | 'green'
+export type TileType = 'road' | 'road_zebra' | 'green' | 'concrete' | 'water' | 'path'
 
 export interface SceneMeta {
   id: string

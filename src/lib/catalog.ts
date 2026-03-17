@@ -25,6 +25,7 @@ export interface TileCatalogItem {
   type: TileType
   title: string
   color: string
+  category: 'asphalt' | 'concrete' | 'green' | 'water' | 'path'
 }
 
 export const sceneCatalog: CatalogItem[] = [
@@ -33,7 +34,6 @@ export const sceneCatalog: CatalogItem[] = [
     title: '车位',
     description: '支持车棚、车位类型和样式切换。',
     color: '#434343',
-    // Real-world size: 2.5m x 5.5m.
     size: { width: metersToSceneUnits(2.5), height: metersToSceneUnits(5.5) },
     createDefaultParams: (): ParkingParams => ({
       widthM: 2.5,
@@ -70,9 +70,12 @@ export const sceneCatalog: CatalogItem[] = [
 ]
 
 export const tileCatalog: TileCatalogItem[] = [
-  { type: 'road', title: '马路', color: '#94a3b8' },
-  { type: 'road_zebra', title: '斑马线', color: '#475569' },
-  { type: 'green', title: '绿化', color: '#86efac' },
+  { type: 'road', title: '沥青', color: '#6b7280', category: 'asphalt' },
+  { type: 'concrete', title: '水泥', color: '#bfc5cd', category: 'concrete' },
+  { type: 'green', title: '绿化', color: '#86efac', category: 'green' },
+  { type: 'water', title: '水面', color: '#5fa8ff', category: 'water' },
+  { type: 'path', title: '步道', color: '#b89d7a', category: 'path' },
+  { type: 'road_zebra', title: '斑马线道路', color: '#475569', category: 'asphalt' },
 ]
 
 export function getCatalogItem(type: ElementType): CatalogItem {
