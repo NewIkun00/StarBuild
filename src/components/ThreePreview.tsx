@@ -397,18 +397,17 @@ export function ThreePreview() {
         envMapIntensity: isGreenTile ? 0.08 : isWaterTile ? 0.65 : 0.18,
       })
       const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(
+        new THREE.PlaneGeometry(
           sceneData.canvas.gridSize,
-          isGreenTile ? 5 : isWaterTile ? 1 : 2,
           sceneData.canvas.gridSize,
         ),
         material,
       )
+      mesh.rotation.x = -Math.PI / 2
       mesh.receiveShadow = true
-      mesh.castShadow = isGreenTile
       mesh.position.set(
         tile.col * sceneData.canvas.gridSize + sceneData.canvas.gridSize / 2,
-        isGreenTile ? 2.5 : isWaterTile ? 0.5 : 1,
+        0,
         tile.row * sceneData.canvas.gridSize + sceneData.canvas.gridSize / 2,
       )
       scene.add(mesh)

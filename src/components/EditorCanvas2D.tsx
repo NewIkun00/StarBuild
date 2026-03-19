@@ -6,7 +6,7 @@ import storagePreviewImageSrc from '../../assets/SBchunenggui.png'
 import storage261ImageSrc from '../../assets/CNG26111.svg'
 import storage418ImageSrc from '../../assets/CNG418888.svg'
 import parkingPreviewImageSrc from '../../assets/TYxiaochechewei.png'
-import { FastLayer, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
+import { Circle, FastLayer, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import { getCatalogItem, getTileCatalogItem } from '../lib/catalog'
 import { normalizeParkingParams } from '../lib/parkingSlots'
 import { normalizeStorageModel } from '../lib/storageCatalog'
@@ -165,6 +165,8 @@ function cloneSceneElements(elements: SceneElement[]) {
 export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const scene = useEditorStore((state) => state.scene)
   const activeTileBrush = useEditorStore((state) => state.activeTileBrush)
+  const groundEditAction = useEditorStore((state) => state.groundEditAction)
+  const groundEditMode = useEditorStore((state) => state.groundEditMode)
   const selectedId = useEditorStore((state) => state.selectedId)
   const showGrid = useEditorStore((state) => state.showGrid)
   const measureMode = useEditorStore((state) => state.measureMode)
@@ -176,8 +178,8 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const insertElementsAt = useEditorStore((state) => state.insertElementsAt)
   const deleteSelectedElement = useEditorStore((state) => state.deleteSelectedElement)
   const undo = useEditorStore((state) => state.undo)
-  const paintTile = useEditorStore((state) => state.paintTile)
   const clearTile = useEditorStore((state) => state.clearTile)
+  const applyTiles = useEditorStore((state) => state.applyTiles)
   const setMeasureMode = useEditorStore((state) => state.setMeasureMode)
 
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -218,6 +220,8 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const clipboardRef = useRef<ClipboardSnapshot | null>(null)
   const pendingViewportRef = useRef<Viewport | null>(null)
   const frameRef = useRef<number | null>(null)
+  const isGroundBrushingRef = useRef(false)
+  const brushedGroundCellsRef = useRef<Set<string>>(new Set())
   const isPanningRef = useRef(false)
   const didPanRef = useRef(false)
   const didSelectionRef = useRef(false)
@@ -241,6 +245,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 })
   const [measureDraft, setMeasureDraft] = useState<MeasureDraft | null>(null)
   const [selectionDraft, setSelectionDraft] = useState<SelectionDraft | null>(null)
+  const [groundBrushPreview, setGroundBrushPreview] = useState<{ x: number; y: number } | null>(null)
   const [zoomPercent, setZoomPercent] = useState(100)
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(
     useEditorStore.getState().selectedId,
@@ -608,6 +613,39 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       x: point.x,
       y: point.y,
     })
+  }
+
+  function getTileCellFromPoint(point: { x: number; y: number }) {
+    return {
+      col: Math.floor(point.x / cellSize),
+      row: Math.floor(point.y / cellSize),
+    }
+  }
+
+  function applyGroundCellAtPoint(point: { x: number; y: number }) {
+    const cell = getTileCellFromPoint(point)
+    const key = `${cell.col}:${cell.row}`
+    if (brushedGroundCellsRef.current.has(key)) {
+      return
+    }
+    brushedGroundCellsRef.current.add(key)
+    applyTiles([cell], groundEditAction)
+  }
+
+  function applyGroundSelection(selection: SelectionDraft) {
+    const minCol = Math.floor(Math.min(selection.startX, selection.endX) / cellSize)
+    const maxCol = Math.floor(Math.max(selection.startX, selection.endX) / cellSize)
+    const minRow = Math.floor(Math.min(selection.startY, selection.endY) / cellSize)
+    const maxRow = Math.floor(Math.max(selection.startY, selection.endY) / cellSize)
+    const cells: Array<{ col: number; row: number }> = []
+
+    for (let col = minCol; col <= maxCol; col += 1) {
+      for (let row = minRow; row <= maxRow; row += 1) {
+        cells.push({ col, row })
+      }
+    }
+
+    applyTiles(cells, groundEditAction)
   }
 
   function beginElementsDrag(
@@ -984,6 +1022,26 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       return
     }
 
+    if (activeTileBrush && event.evt.button === 0) {
+      if (groundEditMode === 'brush') {
+        const point = getPointerWorldPosition()
+        if (!point) {
+          return
+        }
+        event.evt.preventDefault()
+        isGroundBrushingRef.current = true
+        brushedGroundCellsRef.current = new Set()
+        applyGroundCellAtPoint(point)
+        return
+      }
+
+      if (groundEditMode === 'marquee') {
+        event.evt.preventDefault()
+        beginSelection(false)
+        return
+      }
+    }
+
     if (
       event.evt.button === 0 &&
       !activeTileBrush &&
@@ -1016,6 +1074,18 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     const pointer = getPointerWorldPosition()
     if (pointer) {
       lastPointerWorldRef.current = pointer
+    }
+    const stagePointer = stageRef.current?.getPointerPosition() ?? null
+
+    if (activeTileBrush && groundEditMode === 'brush') {
+      setGroundBrushPreview(stagePointer ? { x: stagePointer.x, y: stagePointer.y } : null)
+    } else if (groundBrushPreview) {
+      setGroundBrushPreview(null)
+    }
+
+    if (isGroundBrushingRef.current && pointer) {
+      applyGroundCellAtPoint(pointer)
+      return
     }
 
     if (measureDraft) {
@@ -1071,6 +1141,9 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   }
 
   function handlePointerUp() {
+    isGroundBrushingRef.current = false
+    brushedGroundCellsRef.current = new Set()
+
     if (measureDraft) {
       setMeasureDraft(null)
       setMeasureMode(false)
@@ -1078,6 +1151,11 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     }
 
     if (selectionDraft) {
+      if (activeTileBrush && groundEditMode === 'marquee') {
+        applyGroundSelection(selectionDraft)
+        setSelectionDraft(null)
+        return
+      }
       finalizeSelection(selectionDraft)
       setSelectionDraft(null)
       return
@@ -1093,6 +1171,10 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   }
 
   function handleCanvasClick(event?: Konva.KonvaEventObject<MouseEvent>) {
+    if (event?.evt.button !== 0) {
+      return
+    }
+
     if (measureMode) {
       return
     }
@@ -1110,7 +1192,11 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       return
     }
 
-    if (!activeTileBrush && selectedIdsRef.current.length === 0) {
+    if (activeTileBrush) {
+      if (groundEditMode !== 'point') {
+        return
+      }
+    } else if (selectedIdsRef.current.length === 0) {
       return
     }
 
@@ -1120,10 +1206,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
     }
 
     if (activeTileBrush) {
-      const start = performance.now()
-      paintTile(Math.floor(point.x / cellSize), Math.floor(point.y / cellSize))
-      perfRef.current.storeMs = Number((performance.now() - start).toFixed(2))
-      perfRef.current.storeCount += 1
+      applyTiles([getTileCellFromPoint(point)], groundEditAction)
       return
     }
 
@@ -1613,6 +1696,18 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
             </Layer>
           )}
 
+          {activeTileBrush && groundEditMode === 'brush' && groundBrushPreview && (
+            <Layer listening={false}>
+              <Circle
+                x={groundBrushPreview.x}
+                y={groundBrushPreview.y}
+                radius={10}
+                stroke="rgba(255, 255, 255, 0.2)"
+                strokeWidth={1}
+              />
+            </Layer>
+          )}
+
           <FastLayer ref={tilesDisplayLayerRef}>
             <Group
               ref={tilesDisplayGroupRef}
@@ -1633,10 +1728,13 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                     width={cellSize}
                     x={tile.col * cellSize}
                     y={tile.row * cellSize}
-                    onClick={() => {
-                      if (activeTileBrush) {
-                        paintTile(tile.col, tile.row)
-                      } else {
+                    onClick={(event) => {
+                      if (event.evt.button !== 0) {
+                        return
+                      }
+                      if (activeTileBrush && groundEditMode === 'point') {
+                        applyTiles([{ col: tile.col, row: tile.row }], groundEditAction)
+                      } else if (!activeTileBrush) {
                         clearTile(tile.col, tile.row)
                       }
                     }}
@@ -1920,10 +2018,13 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                   width={cellSize}
                   x={tile.col * cellSize}
                   y={tile.row * cellSize}
-                  onClick={() => {
-                    if (activeTileBrush) {
-                      paintTile(tile.col, tile.row)
-                    } else {
+                  onClick={(event) => {
+                    if (event.evt.button !== 0) {
+                      return
+                    }
+                    if (activeTileBrush && groundEditMode === 'point') {
+                      applyTiles([{ col: tile.col, row: tile.row }], groundEditAction)
+                    } else if (!activeTileBrush) {
                       clearTile(tile.col, tile.row)
                     }
                   }}
@@ -1946,7 +2047,7 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                     ref={(node) => {
                       elementHitNodeMapRef.current[element.id] = node
                     }}
-                    draggable={!measureMode}
+                    draggable={!measureMode && !activeTileBrush}
                     fill="rgba(0,0,0,0.001)"
                     height={elementSize.height}
                     offsetX={elementSize.width / 2}
@@ -1956,6 +2057,9 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                     x={element.x}
                     y={element.y}
                     onClick={(event) => {
+                      if (activeTileBrush) {
+                        return
+                      }
                       if (measureMode) {
                         return
                       }
@@ -1972,9 +2076,17 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
                         selectElement(element.id)
                       }
                     }}
-                    onMouseEnter={() => setHoveredElement(element.id)}
+                    onMouseEnter={() => {
+                      if (!activeTileBrush) {
+                        setHoveredElement(element.id)
+                      }
+                    }}
                     onMouseLeave={() => setHoveredElement(null)}
                     onDragStart={(event) => {
+                      if (activeTileBrush) {
+                        event.target.stopDrag()
+                        return
+                      }
                       if (event.evt.button !== 0) {
                         event.target.stopDrag()
                         const displayNode = elementNodeMapRef.current[element.id]

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { CatalogSidebar } from './components/CatalogSidebar'
 import { GroundSidebar } from './components/GroundSidebar'
+import { GroundToolPanel } from './components/GroundToolPanel'
 import { HomePage } from './components/HomePage'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { SceneToolbar } from './components/SceneToolbar'
@@ -65,6 +66,7 @@ function App() {
           >
             {mode === '2d' ? <EditorCanvas2D /> : <ThreePreview />}
           </Suspense>
+          {mode === '2d' && <GroundToolPanel />}
         </section>
         <PropertiesPanel element={selectedElement} />
       </main>

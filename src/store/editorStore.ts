@@ -31,6 +31,9 @@ interface HistoryEntry {
   selectedIds: string[]
 }
 
+export type GroundEditAction = 'create' | 'delete'
+export type GroundEditMode = 'point' | 'marquee' | 'brush'
+
 const sceneTemplates: SceneTemplate[] = [
   {
     id: 'template-standard',
@@ -158,6 +161,8 @@ interface EditorState {
   selectedId: string | null
   selectedIds: string[]
   activeTileBrush: TileType | null
+  groundEditAction: GroundEditAction
+  groundEditMode: GroundEditMode
   showGrid: boolean
   measureMode: boolean
   templates: SceneTemplate[]
@@ -184,8 +189,11 @@ interface EditorState {
   setShowGrid: (showGrid: boolean) => void
   setMeasureMode: (measureMode: boolean) => void
   toggleTileBrush: (tileType: TileType) => void
+  setGroundEditAction: (action: GroundEditAction) => void
+  setGroundEditMode: (mode: GroundEditMode) => void
   paintTile: (col: number, row: number) => void
   clearTile: (col: number, row: number) => void
+  applyTiles: (cells: Array<{ col: number; row: number }>, action?: GroundEditAction) => void
   undo: () => void
   saveDraft: () => Promise<void>
 }
@@ -199,6 +207,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selectedId: null,
   selectedIds: [],
   activeTileBrush: null,
+  groundEditAction: 'create',
+  groundEditMode: 'point',
   showGrid: true,
   measureMode: false,
   templates: sceneTemplates,
@@ -222,6 +232,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedId: scene.elements[0]?.id ?? null,
       selectedIds: scene.elements[0]?.id ? [scene.elements[0].id] : [],
       activeTileBrush: null,
+      groundEditAction: 'create',
+      groundEditMode: 'point',
       measureMode: false,
     })
   },
@@ -248,6 +260,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedId: null,
       selectedIds: [],
       activeTileBrush: null,
+      groundEditAction: 'create',
+      groundEditMode: 'point',
       measureMode: false,
     })
   },
@@ -280,6 +294,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedId: scene.elements[0]?.id ?? null,
       selectedIds: scene.elements[0]?.id ? [scene.elements[0].id] : [],
       activeTileBrush: null,
+      groundEditAction: 'create',
+      groundEditMode: 'point',
       measureMode: false,
     })
   },
@@ -307,6 +323,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedId: stamped.elements[0]?.id ?? null,
       selectedIds: stamped.elements[0]?.id ? [stamped.elements[0].id] : [],
       activeTileBrush: null,
+      groundEditAction: 'create',
+      groundEditMode: 'point',
       measureMode: false,
     })
   },
@@ -590,6 +608,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         selectedId: id,
         selectedIds: id ? [id] : [],
         activeTileBrush: null,
+        groundEditAction: 'create',
+        groundEditMode: 'point',
         measureMode: false,
       }
     }),
@@ -598,6 +618,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedId: ids[0] ?? null,
       selectedIds: ids,
       activeTileBrush: null,
+      groundEditAction: 'create',
+      groundEditMode: 'point',
       measureMode: false,
     })),
   setShowGrid: (showGrid) => set({ showGrid }),
@@ -611,8 +633,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedId: null,
       selectedIds: [],
       activeTileBrush: state.activeTileBrush === tileType ? null : tileType,
+      groundEditAction: 'create',
+      groundEditMode: 'point',
       measureMode: false,
     })),
+  setGroundEditAction: (groundEditAction) => set({ groundEditAction }),
+  setGroundEditMode: (groundEditMode) => set({ groundEditMode }),
   paintTile: (col, row) =>
     set((state) => {
       if (!state.scene || !state.activeTileBrush) {
@@ -665,6 +691,59 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           })
         : null,
     })),
+  applyTiles: (cells, action) =>
+    set((state) => {
+      if (!state.scene || cells.length === 0) {
+        return state
+      }
+
+      const nextAction = action ?? state.groundEditAction
+      const uniqueCells = Array.from(
+        new Map(cells.map((cell) => [`${cell.col}:${cell.row}`, cell])).values(),
+      )
+
+      let nextTiles = [...state.scene.tiles]
+
+      if (nextAction === 'delete') {
+        const removalKeys = new Set(uniqueCells.map((cell) => `${cell.col}:${cell.row}`))
+        nextTiles = nextTiles.filter((tile) => !removalKeys.has(`${tile.col}:${tile.row}`))
+      } else {
+        const activeBrush = state.activeTileBrush
+        if (!activeBrush) {
+          return state
+        }
+        const tileMap = new Map<string, (typeof nextTiles)[number]>(
+          nextTiles.map((tile) => [`${tile.col}:${tile.row}`, tile] as const),
+        )
+        uniqueCells.forEach(({ col, row }) => {
+          const key = `${col}:${row}`
+          const existing = tileMap.get(key)
+          tileMap.set(
+            key,
+            existing
+              ? { ...existing, tileType: activeBrush }
+              : {
+                  id: crypto.randomUUID(),
+                  tileType: activeBrush,
+                  col,
+                  row,
+                },
+          )
+        })
+        nextTiles = Array.from(tileMap.values())
+      }
+
+      return {
+        historyPast: pushHistoryEntry(state.historyPast, {
+          scene: state.scene,
+          selectedIds: state.selectedIds,
+        }),
+        scene: stampScene({
+          ...state.scene,
+          tiles: nextTiles,
+        }),
+      }
+    }),
   undo: () =>
     set((state) => {
       const previous = state.historyPast[state.historyPast.length - 1]
@@ -683,6 +762,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         selectedId: validSelectedIds[0] ?? null,
         selectedIds: validSelectedIds,
         activeTileBrush: null,
+        groundEditAction: 'create',
+        groundEditMode: 'point',
         measureMode: false,
       }
     }),
