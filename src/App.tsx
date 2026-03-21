@@ -55,12 +55,14 @@ function App() {
   return (
     <div className="app-shell">
       <SceneToolbar onStatusChange={setStatus} />
-      <main className="workspace">
-        <div className="left-panels">
-          <CatalogSidebar catalog={sceneCatalog} />
-          <GroundSidebar />
-        </div>
-        <section className="stage-panel">
+      <main className={`workspace${mode === '3d' ? ' mode-3d' : ''}`}>
+        {mode === '2d' && (
+          <div className="left-panels">
+            <CatalogSidebar catalog={sceneCatalog} />
+            <GroundSidebar />
+          </div>
+        )}
+        <section className={`stage-panel${mode === '3d' ? ' stage-panel-full' : ''}`}>
           <Suspense
             fallback={<div className="canvas-loading">正在加载编辑器模块...</div>}
           >
@@ -68,7 +70,7 @@ function App() {
           </Suspense>
           {mode === '2d' && <GroundToolPanel />}
         </section>
-        <PropertiesPanel element={selectedElement} />
+        {mode === '2d' && <PropertiesPanel element={selectedElement} />}
       </main>
     </div>
   )

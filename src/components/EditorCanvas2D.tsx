@@ -6,13 +6,13 @@ import storagePreviewImageSrc from '../../assets/SBchunenggui.png'
 import storage261ImageSrc from '../../assets/CNG26111.svg'
 import storage418ImageSrc from '../../assets/CNG418888.svg'
 import parkingPreviewImageSrc from '../../assets/TYxiaochechewei.png'
-import { Circle, FastLayer, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
+import { Circle, FastLayer, Group, Image as KonvaImage, Layer, Line, Rect, Shape, Stage, Text } from 'react-konva'
 import { getCatalogItem, getTileCatalogItem } from '../lib/catalog'
 import { normalizeParkingParams } from '../lib/parkingSlots'
 import { normalizeStorageModel } from '../lib/storageCatalog'
 import { getElementMeterSize, getElementSceneSize } from '../lib/sceneGeometry'
 import { getUnitsPerMeter } from '../lib/units'
-import type { ElementType, ParkingParams, SceneElement, StorageParams } from '../types/scene'
+import type { ElementType, ParkingParams, SceneElement, StorageParams, TileType } from '../types/scene'
 import { useEditorStore } from '../store/editorStore'
 
 const MIN_SCALE = 0.3
@@ -79,6 +79,12 @@ type Bounds = {
 
 type ClipboardSnapshot = {
   elements: SceneElement[]
+}
+
+type TileBatch = {
+  tileType: TileType
+  fill: string
+  tiles: Array<{ x: number; y: number }>
 }
 
 function readDraggedElementType(dataTransfer: DataTransfer | null): ElementType | null {
@@ -178,7 +184,6 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const insertElementsAt = useEditorStore((state) => state.insertElementsAt)
   const deleteSelectedElement = useEditorStore((state) => state.deleteSelectedElement)
   const undo = useEditorStore((state) => state.undo)
-  const clearTile = useEditorStore((state) => state.clearTile)
   const applyTiles = useEditorStore((state) => state.applyTiles)
   const setMeasureMode = useEditorStore((state) => state.setMeasureMode)
 
@@ -187,7 +192,6 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const stageRef = useRef<Konva.Stage | null>(null)
   const tilesDisplayGroupRef = useRef<Konva.Group | null>(null)
   const elementsDisplayGroupRef = useRef<Konva.Group | null>(null)
-  const tilesHitGroupRef = useRef<Konva.Group | null>(null)
   const elementsHitGroupRef = useRef<Konva.Group | null>(null)
   const tilesDisplayLayerRef = useRef<Konva.Layer | null>(null)
   const elementsDisplayLayerRef = useRef<Konva.Layer | null>(null)
@@ -220,8 +224,10 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   const clipboardRef = useRef<ClipboardSnapshot | null>(null)
   const pendingViewportRef = useRef<Viewport | null>(null)
   const frameRef = useRef<number | null>(null)
+  const groundBrushFrameRef = useRef<number | null>(null)
   const isGroundBrushingRef = useRef(false)
   const brushedGroundCellsRef = useRef<Set<string>>(new Set())
+  const queuedGroundCellsRef = useRef<Map<string, { col: number; row: number }>>(new Map())
   const isPanningRef = useRef(false)
   const didPanRef = useRef(false)
   const didSelectionRef = useRef(false)
@@ -309,6 +315,34 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       .map((element) => element.id)
   }, [currentScene.elements, selectionDraft])
 
+  const tileBatches = useMemo<TileBatch[]>(() => {
+    const batches = new Map<TileType, TileBatch>()
+
+    currentScene.tiles.forEach((tile) => {
+      const existingBatch = batches.get(tile.tileType)
+      if (existingBatch) {
+        existingBatch.tiles.push({
+          x: tile.col * cellSize,
+          y: tile.row * cellSize,
+        })
+        return
+      }
+
+      batches.set(tile.tileType, {
+        tileType: tile.tileType,
+        fill: getTileCatalogItem(tile.tileType).color,
+        tiles: [
+          {
+            x: tile.col * cellSize,
+            y: tile.row * cellSize,
+          },
+        ],
+      })
+    })
+
+    return Array.from(batches.values())
+  }, [cellSize, currentScene.tiles])
+
   function drawLayers() {
     tilesDisplayLayerRef.current?.batchDraw()
     elementsDisplayLayerRef.current?.batchDraw()
@@ -322,18 +356,8 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
 
   function refreshLayerCache() {
     const start = performance.now()
-    const padding = 120
-    const cacheRect = {
-      x: -padding,
-      y: -padding,
-      width: currentScene.canvas.width + padding * 2,
-      height: currentScene.canvas.height + padding * 2,
-      pixelRatio: 1,
-    }
-
-    if (currentScene.tiles.length > 0 && tilesDisplayGroupRef.current) {
-      tilesDisplayGroupRef.current?.clearCache()
-      tilesDisplayGroupRef.current?.cache(cacheRect)
+    if (tilesDisplayGroupRef.current) {
+      tilesDisplayGroupRef.current.clearCache()
     }
 
     // Keep element vectors crisp while zooming by avoiding bitmap caching.
@@ -468,12 +492,6 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       scaleY: nextViewport.scale,
     })
     elementsDisplayGroupRef.current?.setAttrs({
-      x: nextViewport.x,
-      y: nextViewport.y,
-      scaleX: nextViewport.scale,
-      scaleY: nextViewport.scale,
-    })
-    tilesHitGroupRef.current?.setAttrs({
       x: nextViewport.x,
       y: nextViewport.y,
       scaleX: nextViewport.scale,
@@ -625,11 +643,29 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
   function applyGroundCellAtPoint(point: { x: number; y: number }) {
     const cell = getTileCellFromPoint(point)
     const key = `${cell.col}:${cell.row}`
-    if (brushedGroundCellsRef.current.has(key)) {
+    if (
+      brushedGroundCellsRef.current.has(key) ||
+      queuedGroundCellsRef.current.has(key)
+    ) {
       return
     }
+
     brushedGroundCellsRef.current.add(key)
-    applyTiles([cell], groundEditAction)
+    queuedGroundCellsRef.current.set(key, cell)
+
+    if (groundBrushFrameRef.current !== null) {
+      return
+    }
+
+    groundBrushFrameRef.current = window.requestAnimationFrame(() => {
+      groundBrushFrameRef.current = null
+      if (queuedGroundCellsRef.current.size === 0) {
+        return
+      }
+      const cells = Array.from(queuedGroundCellsRef.current.values())
+      queuedGroundCellsRef.current.clear()
+      applyTiles(cells, groundEditAction)
+    })
   }
 
   function applyGroundSelection(selection: SelectionDraft) {
@@ -947,6 +983,11 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
       if (frameRef.current !== null) {
         window.cancelAnimationFrame(frameRef.current)
       }
+      if (groundBrushFrameRef.current !== null) {
+        window.cancelAnimationFrame(groundBrushFrameRef.current)
+      }
+      queuedGroundCellsRef.current.clear()
+      brushedGroundCellsRef.current.clear()
       if (perfLoopRef.current !== null) {
         window.cancelAnimationFrame(perfLoopRef.current)
       }
@@ -1142,6 +1183,15 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
 
   function handlePointerUp() {
     isGroundBrushingRef.current = false
+    if (groundBrushFrameRef.current !== null) {
+      window.cancelAnimationFrame(groundBrushFrameRef.current)
+      groundBrushFrameRef.current = null
+    }
+    if (queuedGroundCellsRef.current.size > 0) {
+      const cells = Array.from(queuedGroundCellsRef.current.values())
+      queuedGroundCellsRef.current.clear()
+      applyTiles(cells, groundEditAction)
+    }
     brushedGroundCellsRef.current = new Set()
 
     if (measureDraft) {
@@ -1717,30 +1767,22 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
               x={viewport.x}
               y={viewport.y}
             >
-              {currentScene.tiles.map((tile) => {
-                const info = getTileCatalogItem(tile.tileType)
-                return (
-                  <Rect
-                    key={tile.id}
-                    fill={info.color}
-                    height={cellSize}
-                    opacity={0.8}
-                    width={cellSize}
-                    x={tile.col * cellSize}
-                    y={tile.row * cellSize}
-                    onClick={(event) => {
-                      if (event.evt.button !== 0) {
-                        return
-                      }
-                      if (activeTileBrush && groundEditMode === 'point') {
-                        applyTiles([{ col: tile.col, row: tile.row }], groundEditAction)
-                      } else if (!activeTileBrush) {
-                        clearTile(tile.col, tile.row)
-                      }
-                    }}
-                  />
-                )
-              })}
+              {tileBatches.map((batch) => (
+                <Shape
+                  key={batch.tileType}
+                  fill={batch.fill}
+                  listening={false}
+                  opacity={0.8}
+                  perfectDrawEnabled={false}
+                  sceneFunc={(context, shape) => {
+                    context.beginPath()
+                    batch.tiles.forEach((tile) => {
+                      context.rect(tile.x, tile.y, cellSize, cellSize)
+                    })
+                    context.fillStrokeShape(shape)
+                  }}
+                />
+              ))}
             </Group>
           </FastLayer>
 
@@ -2004,35 +2046,6 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
 
           <Layer>
             <Group
-              ref={tilesHitGroupRef}
-              scaleX={viewport.scale}
-              scaleY={viewport.scale}
-              x={viewport.x}
-              y={viewport.y}
-            >
-              {currentScene.tiles.map((tile) => (
-                <Rect
-                  key={`tile-hit-${tile.id}`}
-                  fill="rgba(0,0,0,0.001)"
-                  height={cellSize}
-                  width={cellSize}
-                  x={tile.col * cellSize}
-                  y={tile.row * cellSize}
-                  onClick={(event) => {
-                    if (event.evt.button !== 0) {
-                      return
-                    }
-                    if (activeTileBrush && groundEditMode === 'point') {
-                      applyTiles([{ col: tile.col, row: tile.row }], groundEditAction)
-                    } else if (!activeTileBrush) {
-                      clearTile(tile.col, tile.row)
-                    }
-                  }}
-                />
-              ))}
-            </Group>
-
-            <Group
               ref={elementsHitGroupRef}
               scaleX={viewport.scale}
               scaleY={viewport.scale}
@@ -2276,22 +2289,6 @@ export const EditorCanvas2D = memo(function EditorCanvas2D() {
               </Group>
             </Layer>
         </Stage>
-      </div>
-      <div className="perf-panel">
-        <div className="perf-title">Canvas Perf</div>
-        <div>FPS {perfPanel.fps}</div>
-        <div>zoom {perfPanel.zoomMs}ms</div>
-        <div>pan {perfPanel.panMs}ms</div>
-        <div>select {perfPanel.selectMs}ms</div>
-        <div>store {perfPanel.storeMs}ms</div>
-        <div>cache {perfPanel.cacheMs}ms</div>
-        <div>wheel {perfPanel.wheelCount}</div>
-        <div>pan start {perfPanel.panCount}</div>
-        <div>select count {perfPanel.selectCount}</div>
-        <div>store count {perfPanel.storeCount}</div>
-      </div>
-      <div className="canvas-footer">
-        <span className="canvas-zoom-indicator">缩放 {zoomPercent}%</span>
       </div>
     </div>
   )

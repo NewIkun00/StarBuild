@@ -1,4 +1,5 @@
 import type {
+  CarParams,
   ChargerParams,
   ElementParams,
   ElementType,
@@ -53,8 +54,8 @@ export const sceneCatalog: CatalogItem[] = [
     color: '#fb7185',
     size: { width: 52, height: 52 },
     createDefaultParams: (): ChargerParams => ({
-      chargerType: 'integrated',
-      model: '双子座V3.2 120kW',
+      chargerType: 'ac',
+      model: '弯月',
     }),
   },
   {
@@ -67,14 +68,22 @@ export const sceneCatalog: CatalogItem[] = [
       model: 'storage_261',
     }),
   },
+  {
+    type: 'car',
+    title: '汽车',
+    description: '用于道路与车位场景中的车辆展示。',
+    color: '#64748b',
+    size: { width: metersToSceneUnits(2), height: metersToSceneUnits(5) },
+    createDefaultParams: (): CarParams => ({}),
+  },
 ]
 
 export const tileCatalog: TileCatalogItem[] = [
-  { type: 'road', title: '沥青', color: '#6b7280', category: 'asphalt' },
-  { type: 'concrete', title: '水泥', color: '#bfc5cd', category: 'concrete' },
-  { type: 'green', title: '绿化', color: '#86efac', category: 'green' },
-  { type: 'water', title: '水面', color: '#5fa8ff', category: 'water' },
-  { type: 'path', title: '步道', color: '#b89d7a', category: 'path' },
+  { type: 'road', title: '沥青', color: '#1D1D1D', category: 'asphalt' },
+  { type: 'concrete', title: '水泥', color: '#232323', category: 'concrete' },
+  { type: 'green', title: '绿化', color: '#384A40', category: 'green' },
+  { type: 'water', title: '水面', color: '#34474F', category: 'water' },
+  { type: 'path', title: '步道', color: '#323232', category: 'path' },
   { type: 'road_zebra', title: '斑马线道路', color: '#475569', category: 'asphalt' },
 ]
 

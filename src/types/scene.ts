@@ -1,6 +1,6 @@
 export type SceneMode = '2d' | '3d'
 
-export type ElementType = 'parking' | 'charger' | 'storage'
+export type ElementType = 'parking' | 'charger' | 'storage' | 'car'
 export type TileType = 'road' | 'road_zebra' | 'green' | 'concrete' | 'water' | 'path'
 
 export interface SceneMeta {
@@ -51,7 +51,9 @@ export interface StorageParams {
   model: 'storage_261' | 'storage_418'
 }
 
-export type ElementParams = ParkingParams | ChargerParams | StorageParams
+export interface CarParams {}
+
+export type ElementParams = ParkingParams | ChargerParams | StorageParams | CarParams
 
 export interface SceneElement {
   id: string
@@ -165,10 +167,10 @@ export function createTemplateScene(): SceneDocument {
         type: 'charger',
         x: 680,
         y: 300,
-        rotation: 90,
+        rotation: 0,
         params: {
-          chargerType: 'integrated',
-          model: '双子座V3.2 120kW',
+          chargerType: 'ac',
+          model: '弯月',
         },
       },
       {

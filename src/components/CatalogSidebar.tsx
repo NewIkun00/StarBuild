@@ -18,7 +18,10 @@ export function CatalogSidebar({ catalog }: CatalogSidebarProps) {
   const transparentDragImageRef = useRef<HTMLImageElement | null>(null)
 
   const parkingItems = catalog.filter((item) => item.type === 'parking')
-  const equipmentItems = catalog.filter((item) => item.type !== 'parking')
+  const equipmentItems = catalog.filter(
+    (item) => item.type === 'charger' || item.type === 'storage',
+  )
+  const businessItems = catalog.filter((item) => item.type === 'car')
 
   function toggleSection(section: 'parking' | 'equipment' | 'business') {
     setOpenSection((current) => (current === section ? null : section))
@@ -161,7 +164,38 @@ export function CatalogSidebar({ catalog }: CatalogSidebarProps) {
             />
           </button>
           {openSection === 'business' && (
-            <div className="sidebar-section-body sidebar-empty">暂未开放其他业务元素</div>
+            <div className="sidebar-section-body">
+              <div className="catalog-grid">
+                {businessItems.map((item) => (
+                  <button
+                    key={item.type}
+                    className="catalog-tile"
+                    draggable
+                    type="button"
+                    onClick={() => handleItemClick(item.type)}
+                    onDragStart={(event) => handleDragStart(event, item.type)}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <span
+                      className="catalog-tile-preview"
+                      style={{ ['--catalog-tile-image' as string]: `url(${previewTileImage})` }}
+                    >
+                      <span
+                        className="catalog-tile-icon"
+                        style={{
+                          width: '50px',
+                          height: '24px',
+                          borderRadius: '6px',
+                          background: '#64748b',
+                          display: 'block',
+                        }}
+                      />
+                    </span>
+                    <span className="catalog-tile-label">{item.title}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </section>
       </div>

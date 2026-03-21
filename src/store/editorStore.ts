@@ -703,10 +703,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       )
 
       let nextTiles = [...state.scene.tiles]
+      let didChange = false
 
       if (nextAction === 'delete') {
         const removalKeys = new Set(uniqueCells.map((cell) => `${cell.col}:${cell.row}`))
-        nextTiles = nextTiles.filter((tile) => !removalKeys.has(`${tile.col}:${tile.row}`))
+        nextTiles = nextTiles.filter((tile) => {
+          const shouldRemove = removalKeys.has(`${tile.col}:${tile.row}`)
+          if (shouldRemove) {
+            didChange = true
+          }
+          return !shouldRemove
+        })
       } else {
         const activeBrush = state.activeTileBrush
         if (!activeBrush) {
@@ -718,6 +725,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         uniqueCells.forEach(({ col, row }) => {
           const key = `${col}:${row}`
           const existing = tileMap.get(key)
+          if (existing?.tileType === activeBrush) {
+            return
+          }
+          didChange = true
           tileMap.set(
             key,
             existing
@@ -731,6 +742,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           )
         })
         nextTiles = Array.from(tileMap.values())
+      }
+
+      if (!didChange) {
+        return state
       }
 
       return {

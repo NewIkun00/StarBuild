@@ -4,6 +4,8 @@ import { getCatalogItem } from '../lib/catalog'
 import {
   chargerModelOptions,
   chargerTypeOptions,
+  defaultChargerModels,
+  disabledChargerModels,
   normalizeChargerType,
 } from '../lib/chargerCatalog'
 import { normalizeParkingParams, normalizeSteelColor } from '../lib/parkingSlots'
@@ -331,7 +333,9 @@ function ChargerFields({
 }) {
   const normalizedType = normalizeChargerType(params.chargerType, params.model)
   const modelOptions = chargerModelOptions[normalizedType]
-  const normalizedModel = modelOptions.includes(params.model) ? params.model : modelOptions[0]
+  const disabledModels = disabledChargerModels[normalizedType]
+  const defaultModel = defaultChargerModels[normalizedType]
+  const normalizedModel = modelOptions.includes(params.model) ? params.model : defaultModel
 
   return (
     <>
@@ -346,13 +350,14 @@ function ChargerFields({
           const nextType = value as NonNullable<ChargerParams['chargerType']>
           onChange({
             chargerType: nextType,
-            model: chargerModelOptions[nextType][0],
+            model: defaultChargerModels[nextType],
           })
         }}
       />
       <SelectField
         label="充电桩型号"
         value={normalizedModel}
+        disabledOptions={disabledModels}
         options={modelOptions.map((option) => ({
           label: option,
           value: option,
@@ -389,11 +394,13 @@ function SelectField({
   label,
   value,
   options,
+  disabledOptions = [],
   onChange,
 }: {
   label: string
   value: string
   options: Array<{ label: string; value: string }>
+  disabledOptions?: string[]
   onChange: (value: string) => void
 }) {
   const [isOpen, setIsOpen] = useState(false)
@@ -445,19 +452,25 @@ function SelectField({
       </button>
       {isOpen && (
         <div className="select-field-menu">
-          {options.map((option) => (
-            <button
-              key={option.value}
-              className={`select-field-option ${option.value === value ? 'is-selected' : ''}`}
-              type="button"
-              onClick={() => {
-                onChange(option.value)
-                setIsOpen(false)
-              }}
-            >
-              <span className="select-field-option-text">{option.label}</span>
-            </button>
-          ))}
+          {options.map((option) => {
+            const isDisabled = disabledOptions.includes(option.value)
+            return (
+              <button
+                key={option.value}
+                className={`select-field-option ${option.value === value ? 'is-selected' : ''} ${isDisabled ? 'is-disabled' : ''}`}
+                type="button"
+                disabled={isDisabled}
+                onClick={() => {
+                  if (!isDisabled) {
+                    onChange(option.value)
+                    setIsOpen(false)
+                  }
+                }}
+              >
+                <span className="select-field-option-text">{option.label}</span>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>

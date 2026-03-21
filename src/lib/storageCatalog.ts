@@ -18,13 +18,13 @@ export function getStorageSceneSize(params: StorageParams) {
 
   if (model === 'storage_418') {
     return {
-      width: metersToSceneUnits(1.36),
-      height: metersToSceneUnits(1.43),
+      width: metersToSceneUnits(1.36),   // 宽1.36m
+      height: metersToSceneUnits(1.2),   // 深1.2m
     }
   }
 
   return {
-    width: metersToSceneUnits(0.99),
-    height: metersToSceneUnits(1.4),
+    width: metersToSceneUnits(1),        // 宽1m
+    height: metersToSceneUnits(1),       // 深1m
   }
 }
