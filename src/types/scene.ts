@@ -1,7 +1,7 @@
 export type SceneMode = '2d' | '3d'
 
-export type ElementType = 'parking' | 'charger' | 'storage'
-export type TileType = 'road' | 'road_zebra' | 'green'
+export type ElementType = 'parking' | 'charger' | 'storage' | 'car'
+export type TileType = 'road' | 'road_zebra' | 'green' | 'concrete' | 'water' | 'path'
 
 export interface SceneMeta {
   id: string
@@ -14,23 +14,46 @@ export interface SceneCanvas {
   height: number
   gridSize: number
   unit: 'm'
+  unitsPerMeter?: number
+}
+
+export interface ParkingSlotChild {
+  id: string
+  type: 'wheel_stop' | 'ground_spray'
+  xOffset: number
+  yOffset: number
+  rotation: number
+}
+
+export interface ParkingSlot {
+  id: string
+  index: number
+  children: ParkingSlotChild[]
 }
 
 export interface ParkingParams {
-  hasPvCanopy: boolean
-  canopyStyle: 'flat' | 'curve'
-  parkingType: 'standard' | 'accessible'
+  widthM: number
+  lengthM: number
+  count: number
+  slots: ParkingSlot[]
+  canopyType: 'none' | 'pv' | 'film'
+  carportStyle?: 'y' | 'seven'
+  steelColor?: string
+  parkingType: 'ordinary' | 'charging' | 'standard' | 'accessible'
 }
 
 export interface ChargerParams {
-  model: 'charger_120kw' | 'charger_180kw'
+  chargerType?: 'ac' | 'integrated' | 'split' | 'v2g'
+  model: string
 }
 
 export interface StorageParams {
-  model: 'storage_215kwh' | 'storage_372kwh'
+  model: 'storage_261' | 'storage_418'
 }
 
-export type ElementParams = ParkingParams | ChargerParams | StorageParams
+export interface CarParams {}
+
+export type ElementParams = ParkingParams | ChargerParams | StorageParams | CarParams
 
 export interface SceneElement {
   id: string
@@ -75,8 +98,9 @@ export function createDefaultScene(): SceneDocument {
     canvas: {
       width: 1600,
       height: 900,
-      gridSize: 80,
+      gridSize: 10,
       unit: 'm',
+      unitsPerMeter: 10,
     },
     elements: [],
     tiles: [],
@@ -99,9 +123,20 @@ export function createTemplateScene(): SceneDocument {
         y: 300,
         rotation: 0,
         params: {
-          hasPvCanopy: true,
-          canopyStyle: 'flat',
-          parkingType: 'standard',
+          widthM: 2.5,
+          lengthM: 5.5,
+          count: 1,
+          slots: [
+            {
+              id: crypto.randomUUID(),
+              index: 0,
+              children: [],
+            },
+          ],
+          canopyType: 'none',
+          carportStyle: 'y',
+          steelColor: '#FFFFFF',
+          parkingType: 'ordinary',
         },
       },
       {
@@ -111,9 +146,20 @@ export function createTemplateScene(): SceneDocument {
         y: 300,
         rotation: 0,
         params: {
-          hasPvCanopy: true,
-          canopyStyle: 'flat',
-          parkingType: 'standard',
+          widthM: 2.5,
+          lengthM: 5.5,
+          count: 1,
+          slots: [
+            {
+              id: crypto.randomUUID(),
+              index: 0,
+              children: [],
+            },
+          ],
+          canopyType: 'none',
+          carportStyle: 'y',
+          steelColor: '#FFFFFF',
+          parkingType: 'ordinary',
         },
       },
       {
@@ -121,9 +167,10 @@ export function createTemplateScene(): SceneDocument {
         type: 'charger',
         x: 680,
         y: 300,
-        rotation: 90,
+        rotation: 0,
         params: {
-          model: 'charger_120kw',
+          chargerType: 'ac',
+          model: '弯月',
         },
       },
       {
@@ -133,7 +180,7 @@ export function createTemplateScene(): SceneDocument {
         y: 260,
         rotation: 0,
         params: {
-          model: 'storage_215kwh',
+          model: 'storage_261',
         },
       },
     ],

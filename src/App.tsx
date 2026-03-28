@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { CatalogSidebar } from './components/CatalogSidebar'
+import { GroundSidebar } from './components/GroundSidebar'
+import { GroundToolPanel } from './components/GroundToolPanel'
 import { HomePage } from './components/HomePage'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { SceneToolbar } from './components/SceneToolbar'
@@ -24,11 +26,15 @@ function App() {
   const appView = useEditorStore((state) => state.appView)
   const mode = useEditorStore((state) => state.mode)
   const selectedId = useEditorStore((state) => state.selectedId)
+  const selectedIds = useEditorStore((state) => state.selectedIds)
   const scene = useEditorStore((state) => state.scene)
   const initialize = useEditorStore((state) => state.initialize)
   const selectedElement = useMemo(
-    () => scene?.elements.find((item) => item.id === selectedId) ?? null,
-    [scene, selectedId],
+    () =>
+      selectedIds.length === 1
+        ? scene?.elements.find((item) => item.id === selectedId) ?? null
+        : null,
+    [scene, selectedId, selectedIds],
   )
   const [status, setStatus] = useState('正在初始化...')
 
@@ -48,24 +54,23 @@ function App() {
 
   return (
     <div className="app-shell">
-      <SceneToolbar status={status} onStatusChange={setStatus} />
-      <main className="workspace">
-        <CatalogSidebar catalog={sceneCatalog} />
-        <section className="stage-panel">
-          <header className="panel-heading">
-            <div>
-              <p className="eyebrow">StarBuild Editor</p>
-              <h1>{scene.meta.name}</h1>
-            </div>
-            <div className="mode-badge">{mode === '2d' ? '2D 编辑中' : '3D 预览中'}</div>
-          </header>
+      <SceneToolbar onStatusChange={setStatus} />
+      <main className={`workspace${mode === '3d' ? ' mode-3d' : ''}`}>
+        {mode === '2d' && (
+          <div className="left-panels">
+            <CatalogSidebar catalog={sceneCatalog} />
+            <GroundSidebar />
+          </div>
+        )}
+        <section className={`stage-panel${mode === '3d' ? ' stage-panel-full' : ''}`}>
           <Suspense
             fallback={<div className="canvas-loading">正在加载编辑器模块...</div>}
           >
             {mode === '2d' ? <EditorCanvas2D /> : <ThreePreview />}
           </Suspense>
+          {mode === '2d' && <GroundToolPanel />}
         </section>
-        <PropertiesPanel element={selectedElement} />
+        {mode === '2d' && <PropertiesPanel element={selectedElement} />}
       </main>
     </div>
   )
